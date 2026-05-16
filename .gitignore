@@ -1,0 +1,9 @@
+dist/
+node_modules/
+/tmp/
+test/*.ttc
+test/*.ttf
+test/*.otf
+*.tar.gz
+*.sha256.txt
+.DS_Store

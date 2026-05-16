@@ -1,0 +1,69 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+# tag 与上游 FreeType 版本对齐：
+#   v2.13.3      → 构建 FreeType 2.13.3
+#   v2.13.3-1    → 仍 FreeType 2.13.3，仅本仓库打包/wrapper 变更（-N 为打包修订）
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk:3.1.74
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 装 cmake
+        run: apt-get update && apt-get install -y --no-install-recommends cmake
+
+      - name: 从 tag 解析 FreeType 版本
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          FT_VER="${TAG#v}"        # 去掉前导 v
+          FT_VER="${FT_VER%%-*}"   # 去掉 -N 打包修订
+          echo "ft=$FT_VER" >> "$GITHUB_OUTPUT"
+          echo ">>> tag=$TAG → FreeType $FT_VER"
+
+      - name: 构建
+        run: FT_VER="${{ steps.ver.outputs.ft }}" bash build.sh
+
+      - name: 验证
+        run: node test/test.mjs
+
+      - name: 打包 + 校验和
+        run: |
+          cd dist
+          tar -czf "../freetype-wasm-${GITHUB_REF_NAME}.tar.gz" .
+          cd ..
+          sha256sum "freetype-wasm-${GITHUB_REF_NAME}.tar.gz" dist/freetype.wasm dist/freetype.mjs \
+            > "freetype-wasm-${GITHUB_REF_NAME}.sha256.txt"
+
+      - name: 发 GitHub Release（附产物）
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "freetype-wasm ${{ github.ref_name }} (FreeType ${{ steps.ver.outputs.ft }})"
+          body: |
+            FreeType **${{ steps.ver.outputs.ft }}** 编成的通用 WASM 模块。
+
+            **相对 npm 上停滞的 `freetype-wasm` 的关键修复**：`ALLOW_MEMORY_GROWTH=1`
+            → 加载 4MB+ CJK 字体不再 OOM。完整 FreeType 公共 C API + Emscripten
+            运行时助手，Node + 浏览器通用，MONO 与灰度 AA 由调用方传 flag 决定。
+
+            产物（也见 `freetype-wasm-${{ github.ref_name }}.tar.gz`）：
+            - `freetype.wasm` / `freetype.mjs` —— Emscripten 模块（完整公共 API）
+            - `offsets.mjs` / `struct-offsets.json` —— wasm32 结构体字段偏移
+            - `index.mjs` / `index.d.ts` —— 薄 JS 包装（Face 便捷类 + 原生门）
+
+            构建可复现：`emscripten/emsdk:3.1.74` + FreeType ${{ steps.ver.outputs.ft }}（GNU Savannah 源）。
+          files: |
+            freetype-wasm-${{ github.ref_name }}.tar.gz
+            freetype-wasm-${{ github.ref_name }}.sha256.txt
+            dist/freetype.wasm
+            dist/freetype.mjs
+            dist/offsets.mjs
+            dist/struct-offsets.json
+            dist/index.mjs
+            dist/index.d.ts
