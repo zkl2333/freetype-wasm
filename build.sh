@@ -37,8 +37,25 @@ emcmake cmake -B build -G "Unix Makefiles" \
 emmake make -C build -j"$(nproc)" freetype
 FT_LIB="$FT_SRC/build/libfreetype.a"
 
-# 2) 抽完整公共 API 符号列表
-bash "$SCRIPT_DIR/scripts/gen-exports.sh" "$FT_INC" "$WORK/exports.json"
+# 2) 抽公共 API 候选名 → 与 libfreetype.a 实际定义符号取交集 → 最终 EXPORTED_FUNCTIONS
+bash "$SCRIPT_DIR/scripts/gen-exports.sh" "$FT_INC" "$WORK/candidates.txt"
+# libfreetype.a 里真实定义的符号（-j 只出符号名，--defined-only 去未定义）
+emnm -j --defined-only "$FT_LIB" 2>/dev/null \
+  | sed -E 's/^_//' \
+  | sort -u > "$WORK/defined.txt"
+comm -12 "$WORK/candidates.txt" "$WORK/defined.txt" > "$WORK/final.txt"
+fcnt="$(grep -c . "$WORK/final.txt" || true)"
+if [ "$fcnt" -lt 50 ]; then
+  echo "!! 交集只剩 ${fcnt} 个（候选 $(grep -c . "$WORK/candidates.txt") / 定义 $(grep -c . "$WORK/defined.txt")），异常" >&2
+  exit 1
+fi
+{
+  printf '['
+  printf '"_malloc","_free"'
+  while IFS= read -r fn; do [ -n "$fn" ] && printf ',"_%s"' "$fn"; done < "$WORK/final.txt"
+  printf ']'
+} > "$WORK/exports.json"
+echo ">>> 导出 ${fcnt} 个真实存在的 FreeType 公共函数（候选∩libfreetype.a）" >&2
 
 # 3) 生成 wasm32 结构体偏移（必须 emcc 编、node 跑，不能本机 gcc）
 echo ">>> 生成 struct 偏移（wasm32 ABI）"
