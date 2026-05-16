@@ -1,19 +1,19 @@
-name: release
+name: build-tag
 on:
   push:
     tags: ["v*"]
 
+# 分发就是 git tag 本身（不发 npm、不发 GitHub Release）。
 # tag 与上游 FreeType 版本对齐：
 #   v2.13.3   → 构建 FreeType 2.13.3
 #   v2.13.3-1 → 仍 FreeType 2.13.3，仅本仓库打包/wrapper 第 1 次修订
 #
-# 流程：用户推一个"瘦" tag → CI 构建+验证 → 把 dist/ 与版本号回写、
-# 把该 tag 固化到这个含产物的提交 → 于是
+# 流程：推一个"瘦" tag → CI 构建+验证 → 把 dist/ 与同步后的版本号固化进该 tag → 于是
 #   jsdelivr: https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs
 #   npm:      npm i github:zkl2333/freetype-wasm#<tag>
-# 都能直接拿到产物（仍不发 npm）。
+# 都直接可消费。验证不过则 run 红、不固化 → 坏产物不会进 tag。
 jobs:
-  release:
+  build-tag:
     runs-on: ubuntu-latest
     container: emscripten/emsdk:3.1.74
     permissions:
@@ -26,13 +26,12 @@ jobs:
       - name: 装 cmake / git
         run: apt-get update && apt-get install -y --no-install-recommends cmake git
 
-      - name: 从 tag 解析版本（FreeType 版本 + 完整打包版本）
+      - name: 从 tag 解析版本
         id: ver
         run: |
           TAG="${GITHUB_REF_NAME}"
           PKG_VER="${TAG#v}"          # 完整：2.13.3 或 2.13.3-1（package.json 用，和上游同步）
           FT_VER="${PKG_VER%%-*}"     # 仅 FreeType：2.13.3
-          echo "tag=$TAG"     >> "$GITHUB_OUTPUT"
           echo "pkg=$PKG_VER" >> "$GITHUB_OUTPUT"
           echo "ft=$FT_VER"   >> "$GITHUB_OUTPUT"
           echo ">>> tag=$TAG → FreeType $FT_VER, package version $PKG_VER"
@@ -40,19 +39,13 @@ jobs:
       - name: 构建
         run: FT_VER="${{ steps.ver.outputs.ft }}" bash build.sh
 
-      - name: 验证
+      - name: 验证（不过则不固化，坏产物不进 tag）
         run: node test/test.mjs
 
       - name: 版本号同步上游（盖进 package.json）
         run: |
           node -e 'const f="package.json";const j=JSON.parse(require("fs").readFileSync(f));j.version="${{ steps.ver.outputs.pkg }}";require("fs").writeFileSync(f,JSON.stringify(j,null,2)+"\n")'
           grep '"version"' package.json
-
-      - name: 打包 + 校验和
-        run: |
-          cd dist && tar -czf "../freetype-wasm-${GITHUB_REF_NAME}.tar.gz" . && cd ..
-          sha256sum "freetype-wasm-${GITHUB_REF_NAME}.tar.gz" dist/freetype.wasm dist/freetype.mjs \
-            > "freetype-wasm-${GITHUB_REF_NAME}.sha256.txt"
 
       - name: 把 dist/ + 版本号固化进该 tag
         run: |
@@ -63,29 +56,4 @@ jobs:
           git commit -m "build: ${GITHUB_REF_NAME} 产物（FreeType ${{ steps.ver.outputs.ft }}）"
           git tag -f "${GITHUB_REF_NAME}"
           git push -f origin "refs/tags/${GITHUB_REF_NAME}"
-          # 顺带把产物推到 main（失败不阻断发布）
-          git push origin "HEAD:main" || echo "(main 推送跳过/冲突，不影响 tag 与 release)"
-
-      - name: 发 GitHub Release（附产物）
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "freetype-wasm ${{ github.ref_name }} (FreeType ${{ steps.ver.outputs.ft }})"
-          body: |
-            FreeType **${{ steps.ver.outputs.ft }}** 编成的通用 WASM 模块（含 WOFF2 / 完整公共 API）。
-
-            **用法（无需 npm 发布）**：
-            - jsdelivr：`https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@${{ github.ref_name }}/dist/index.mjs`
-            - npm（装 GitHub）：`npm i github:zkl2333/freetype-wasm#${{ github.ref_name }}`
-            - 或直接下方 `freetype-wasm-${{ github.ref_name }}.tar.gz`
-
-            相对 npm 上停滞的 `freetype-wasm` 的关键修复：`ALLOW_MEMORY_GROWTH=1`
-            → 加载 4MB+ CJK 字体不再 OOM。tag 与上游 FreeType 版本对齐。
-          files: |
-            freetype-wasm-${{ github.ref_name }}.tar.gz
-            freetype-wasm-${{ github.ref_name }}.sha256.txt
-            dist/freetype.wasm
-            dist/freetype.mjs
-            dist/offsets.mjs
-            dist/struct-offsets.json
-            dist/index.mjs
-            dist/index.d.ts
+          git push origin "HEAD:main" || echo "(main 推送跳过/冲突，不影响 tag)"

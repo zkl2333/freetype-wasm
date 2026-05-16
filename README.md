@@ -4,7 +4,7 @@ A correctly-built, general-purpose WebAssembly build of [FreeType](https://freet
 
 [中文说明 → README.zh-CN.md](./README.zh-CN.md)
 
-> Not published to npm. Grab prebuilt artifacts from [GitHub Releases](../../releases), or build it yourself with Docker.
+> Not published to npm. Consumed straight from git tags via jsdelivr or `npm i github:`, or built yourself with Docker.
 
 ## Why this exists
 
@@ -24,15 +24,15 @@ Background story: <https://blog.zkl2333.com/posts/eink-render-pure-node/>
 
 ## Install
 
-No npm publish. Pick one (`<tag>` e.g. `v2.13.3-1`, which equals the FreeType version):
+No npm publish, no GitHub Releases — distribution is the git tags themselves. CI builds on every tag and commits the `dist/` (wasm + glue + wrapper) into that tag, so it is consumable directly. Pick one (`<tag>` e.g. `v2.13.3-3`, which tracks the FreeType version):
 
 - **jsdelivr** (browser/Deno, ESM):
   `import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
 - **npm from GitHub** (Node bundlers):
   `npm i github:zkl2333/freetype-wasm#<tag>` → `import initFreeType, { FT } from "freetype-wasm"`
-- **Release tarball**: download `freetype-wasm-<tag>.tar.gz` from [Releases](../../releases) and unpack — a self-contained `dist/`.
+- **git**: `git clone --branch <tag>` and use `dist/`, or `git archive`.
 
-The `dist/` (wasm + glue + wrapper) is committed into each release tag by CI, so jsdelivr/`/gh/` and git-install resolve it directly.
+Available tags: see the [tags page](../../tags). New upstream FreeType releases are picked up automatically (a scheduled job builds, verifies, and tags them).
 
 ## Quick start
 
@@ -82,12 +82,12 @@ const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 
 ## Versioning
 
-Release tags track upstream FreeType, and `package.json` `version` is stamped to match:
+Tags track upstream FreeType, and `package.json` `version` is stamped to match:
 
 - `vX.Y.Z` → built from FreeType X.Y.Z (`package.json` version `X.Y.Z`)
 - `vX.Y.Z-N` → still FreeType X.Y.Z, packaging/wrapper-only revision `N` (version `X.Y.Z-N`)
 
-Pin a tag in the jsdelivr URL / git-install ref to lock a FreeType version.
+A scheduled CI job watches upstream FreeType; when a new release appears it builds, verifies, and (only if the verification passes) creates the matching `vX.Y.Z` tag automatically. Pin a tag in the jsdelivr URL / git-install ref to lock a FreeType version.
 
 ## Reproducible build
 
