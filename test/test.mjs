@@ -72,13 +72,47 @@ async function main() {
     ok(false, `kerning 抛错: ${e.message}`);
   }
 
+  // charmap 选择（通用 API 面）
+  try {
+    face.selectCharmap(FT.ENCODING_UNICODE);
+    ok(true, `selectCharmap(UNICODE) 通`);
+  } catch (e) {
+    ok(false, `selectCharmap 抛错: ${e.message}`);
+  }
+
+  // Latin 宽度合理性：'m' 应明显宽于 'i'（advance 取整 26.6）
+  const advOf = (ch) => face.loadGlyph({ char: ch.codePointAt(0) }).advance.x >> 6;
+  const am = advOf("m"), ai = advOf("i");
+  ok(am > ai && ai > 0, `Latin advance 合理：m=${am} > i=${ai} > 0`);
+
+  face.destroy();
+
+  // WOFF2 —— 验证 brotli 真编进去了（旧窄构建直接不支持）
+  try {
+    const woff2Path = path.join(HERE, "inter.woff2");
+    if (!fs.existsSync(woff2Path)) {
+      const r = await fetch(
+        "https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.0/files/inter-latin-400-normal.woff2"
+      );
+      if (!r.ok) throw new Error("woff2 下载失败 " + r.status);
+      fs.writeFileSync(woff2Path, Buffer.from(await r.arrayBuffer()));
+    }
+    const wface = ft.newFace(fs.readFileSync(woff2Path));
+    wface.setPixelSize(32);
+    const wg = wface.loadGlyph({ char: "A".codePointAt(0) });
+    ok(wg.width > 0 && wg.rows > 0 && wg.advance.x >> 6 > 0,
+       `WOFF2 解码并渲染 'A' ${wg.width}x${wg.rows}（证明 brotli 已编入）`);
+    wface.destroy();
+  } catch (e) {
+    ok(false, `WOFF2 用例失败: ${e.message}`);
+  }
+
   // 原生逃生口可达
   ok(typeof ft.module.cwrap === "function" && typeof ft.module.HEAPU8 === "object",
      `原生层可达（ft.module.cwrap/HEAPU8）`);
   ok(ft.offsets && ft.offsets.FT_FaceRec && ft.offsets.pointerBytes === 4,
      `struct 偏移注入且为 wasm32（pointerBytes=${ft.offsets && ft.offsets.pointerBytes}）`);
 
-  face.destroy();
   ft.destroy();
   finish();
 }

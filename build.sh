@@ -22,18 +22,43 @@ fi
 FT_SRC="$WORK/freetype-${FT_VER}"
 FT_INC="$FT_SRC/include"
 
-# 1) emscripten 交叉编译 libfreetype.a（关掉可选外部依赖：自包含、产物小、
-#    核心 glyph/outline/bitmap/MONO/AA/kerning/charmap API 全保留；
-#    不支持的是 WOFF2/内嵌PNG/zlib压缩字体 —— README 已注明）
+# 1) 先把 brotli 解码器编成 wasm 静态库（FreeType 不自带 brotli；WOFF2 需要它）
+BROTLI_VER="${BROTLI_VER:-1.1.0}"
+BROTLI_PREFIX="$WORK/brotli-prefix"
+echo ">>> brotli ${BROTLI_VER}（WOFF2 依赖）"
+if [ ! -d "brotli-${BROTLI_VER}" ]; then
+  curl -fL "https://github.com/google/brotli/archive/refs/tags/v${BROTLI_VER}.tar.gz" -o brotli.tar.gz
+  tar xf brotli.tar.gz
+fi
+BR_SRC="$WORK/brotli-${BROTLI_VER}/c"
+mkdir -p "$BROTLI_PREFIX/lib" "$BROTLI_PREFIX/include"
+cp -r "$BR_SRC/include/brotli" "$BROTLI_PREFIX/include/"
+( cd "$WORK/brotli-${BROTLI_VER}"
+  mkdir -p obj
+  # 解码 WOFF2 只需 common + dec
+  for f in $(ls "$BR_SRC"/common/*.c "$BR_SRC"/dec/*.c); do
+    emcc -O3 -I"$BR_SRC/include" -c "$f" -o "obj/$(basename "${f%.c}").o"
+  done
+  emar rcs "$BROTLI_PREFIX/lib/libbrotlidec.a" obj/*.o
+  cp "$BROTLI_PREFIX/lib/libbrotlidec.a" "$BROTLI_PREFIX/lib/libbrotlicommon.a"
+)
+
+# 2) emscripten 交叉编译 libfreetype.a
+#    开：zlib（FreeType 自带 gzip，零外部依赖，给 WOFF1 + 压缩表）
+#        brotli（上面编好，给 WOFF2）
+#    关（冷门、需额外外部依赖，README 注明）：bzip2 / png(内嵌彩色位图) / harfbuzz(FT 内部 autohint)
 cd "$FT_SRC"
 emcmake cmake -B build -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIBS=OFF \
-  -DFT_DISABLE_ZLIB=ON \
+  -DFT_DISABLE_ZLIB=OFF \
   -DFT_DISABLE_BZIP2=ON \
   -DFT_DISABLE_PNG=ON \
   -DFT_DISABLE_HARFBUZZ=ON \
-  -DFT_DISABLE_BROTLI=ON
+  -DFT_DISABLE_BROTLI=OFF \
+  -DFT_REQUIRE_BROTLI=ON \
+  -DBROTLIDEC_INCLUDE_DIRS="$BROTLI_PREFIX/include" \
+  -DBROTLIDEC_LIBRARIES="$BROTLI_PREFIX/lib/libbrotlidec.a"
 emmake make -C build -j"$(nproc)" freetype
 FT_LIB="$FT_SRC/build/libfreetype.a"
 
@@ -71,7 +96,7 @@ echo ">>> struct-offsets.json:" && head -c 120 "$OUT_DIR/struct-offsets.json" &&
 # 4) 链接成通用 WASM 模块
 echo ">>> 链接 → freetype.mjs / freetype.wasm"
 RUNTIME_METHODS='ccall,cwrap,getValue,setValue,UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,HEAPU8,HEAP8,HEAP16,HEAP32,HEAPU16,HEAPU32,HEAPF32'
-emcc "$FT_LIB" \
+emcc "$FT_LIB" "$BROTLI_PREFIX/lib/libbrotlidec.a" \
   -O3 \
   --no-entry \
   -sMODULARIZE=1 \

@@ -4,6 +4,8 @@ node_modules/
 test/*.ttc
 test/*.ttf
 test/*.otf
+test/*.woff2
+test/*.woff
 *.tar.gz
 *.sha256.txt
 .DS_Store
