@@ -1,6 +1,6 @@
 {
   "name": "freetype-wasm",
-  "version": "2.13.3",
+  "version": "2.13.3-2",
   "private": true,
   "type": "module",
   "description": "完整 FreeType 编成的通用 WASM 模块：内存可增长（吃得下大 CJK 字体）、暴露完整公共 C API、Node+浏览器通用。不发 npm；用 jsdelivr 或 `npm i github:zkl2333/freetype-wasm#<tag>`。",
@@ -8,18 +8,40 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.mjs" },
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    },
     "./freetype.mjs": "./dist/freetype.mjs",
     "./freetype.wasm": "./dist/freetype.wasm",
     "./offsets.mjs": "./dist/offsets.mjs",
     "./struct-offsets.json": "./dist/struct-offsets.json"
   },
-  "files": ["dist", "README.md", "README.zh-CN.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build:docker": "docker build -t freetype-wasm . && docker run --rm -v \"$PWD/dist:/src/dist\" freetype-wasm",
     "test": "node test/test.mjs"
   },
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/zkl2333/freetype-wasm.git" },
-  "keywords": ["freetype", "wasm", "webassembly", "font", "glyph", "mono", "bitmap", "cjk", "woff2", "rasterize"]
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zkl2333/freetype-wasm.git"
+  },
+  "keywords": [
+    "freetype",
+    "wasm",
+    "webassembly",
+    "font",
+    "glyph",
+    "mono",
+    "bitmap",
+    "cjk",
+    "woff2",
+    "rasterize"
+  ]
 }
