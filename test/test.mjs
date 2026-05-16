@@ -30,6 +30,11 @@ async function main() {
   const ver = ft.version();
   console.log(`>>> FreeType ${ver.join(".")}`);
   ok(ver[0] === 2 && ver[1] >= 10, `version() = ${ver.join(".")}`);
+  // CI gate: when FT_VER is set (finalize-tag.sh / build-tag), the built
+  // FreeType must equal it exactly — proves tag <-> upstream version 1:1.
+  if (process.env.FT_VER) {
+    ok(ver.join(".") === process.env.FT_VER, `built FreeType ${ver.join(".")} === FT_VER ${process.env.FT_VER}`);
+  }
 
   // 关键：5MB CJK 字体加载不 OOM（旧 freetype-wasm 在这直接炸）
   let face;

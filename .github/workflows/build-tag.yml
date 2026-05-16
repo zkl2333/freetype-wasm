@@ -3,16 +3,20 @@ on:
   push:
     tags: ["v*"]
 
-# 分发就是 git tag 本身（不发 npm、不发 GitHub Release）。
-# tag 与上游 FreeType 1:1：v2.14.3 → 构建 FreeType 2.14.3。
-# 不存在 -N 修订 tag —— 打包/wrapper 改了但 FreeType 没升级，就原地强制重建同一个 vX.Y.Z。
+# Distribution IS the git tag itself (no npm, no GitHub Release).
+# Tags map 1:1 to upstream FreeType: v2.14.3 builds FreeType 2.14.3.
+# There are no -N revision tags -- if the build scripts/wrapper change
+# without a FreeType bump, force-rebuild the same vX.Y.Z in place.
 #
-# 用途：人手推一个“瘦” tag（或重推已有 tag）→ 本 workflow 构建+验证 →
-# 把 dist/ + 同步后的版本号固化进该 tag（不碰 main）。于是
+# Use: a human pushes a thin tag (or re-pushes an existing one) -> this
+# workflow builds + verifies -> bakes dist/ + the synced version into the
+# tag (main untouched). Then both:
 #   jsdelivr: https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs
 #   npm:      npm i github:zkl2333/freetype-wasm#<tag>
-# 都直接可消费。验证不过则 run 红、不固化 → 坏产物不会进 tag。
-# （自动追上游见 track-upstream.yml，它自带 finalize，不依赖触发本 workflow。）
+# are directly consumable. If verify fails the run is red and nothing is
+# baked -> bad artifacts never enter a tag.
+# (Auto-tracking upstream lives in track-upstream.yml, which finalizes
+# itself and does NOT rely on triggering this workflow.)
 jobs:
   build-tag:
     runs-on: ubuntu-latest
@@ -24,20 +28,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 装 cmake / git
+      - name: install cmake / git
         run: apt-get update && apt-get install -y --no-install-recommends cmake git
 
-      - name: 从 tag 解析上游版本（强制 1:1，拒 -N）
+      - name: parse upstream version from tag (strict 1:1, reject -N)
         id: ver
         run: |
           TAG="${GITHUB_REF_NAME}"
           if ! printf '%s' "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "!! tag '$TAG' 不是 vX.Y.Z —— tag 必须与上游 FreeType 1:1，不接受 -N/任意后缀"
+            echo "!! tag '$TAG' is not vX.Y.Z -- tags must map 1:1 to upstream FreeType, no -N / suffixes"
             exit 1
           fi
           FT_VER="${TAG#v}"
           echo "ft=$FT_VER" >> "$GITHUB_OUTPUT"
-          echo ">>> tag=$TAG → FreeType $FT_VER"
+          echo ">>> tag=$TAG -> FreeType $FT_VER"
 
-      - name: 构建 + 验证 + 把 dist/ 固化进该 tag
+      - name: build + verify + bake dist/ into the tag
         run: FT_VER="${{ steps.ver.outputs.ft }}" bash scripts/finalize-tag.sh
