@@ -4,7 +4,7 @@
 
 正确构建的通用 [FreeType](https://freetype.org/) WebAssembly 版：内存可增长（能加载数 MB 的 CJK 字体）、暴露**完整 FreeType 公共 C API**、Node 与浏览器通用、版本号对齐上游 FreeType。
 
-> 不发 npm，也不发 GitHub Release —— 分发就是 git tag 本身。CI 在每个 tag 上构建并把 `dist/`（wasm+glue+wrapper）提交进该 tag，直接可消费。任选其一（`<tag>` 如 `v2.13.3-3`，跟随 FreeType 版本）：
+> 不发 npm，也不发 GitHub Release —— 分发就是 git tag 本身。CI 在每个 tag 上构建并把 `dist/`（wasm+glue+wrapper）提交进该 tag，直接可消费。tag 与上游 FreeType 1:1，`<tag>` 就是 `v` + FreeType 版本，如 `v2.14.3`：
 > - **jsdelivr**：`import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
 > - **npm 装 GitHub**：`npm i github:zkl2333/freetype-wasm#<tag>` → `import ... from "freetype-wasm"`
 > - **git**：`git clone --branch <tag>` 用 `dist/`，或 `git archive`
@@ -66,12 +66,11 @@ ft.destroy();
 
 ## 版本号
 
-tag 对齐上游 FreeType，且 `package.json` `version` 由 CI 按 tag 盖同：
+tag 与上游 FreeType **1:1** —— 不存在上游没有的 tag：
 
-- `vX.Y.Z` → FreeType X.Y.Z（version `X.Y.Z`）
-- `vX.Y.Z-N` → 仍 FreeType X.Y.Z，仅打包/wrapper 第 N 次修订（version `X.Y.Z-N`）
+- `vX.Y.Z` → FreeType X.Y.Z（`package.json` `version` 由 CI 盖成 `X.Y.Z`）
 
-定时任务监视上游 FreeType，出新版即自动构建+验证，**仅验证通过**才打对应 `vX.Y.Z` tag。在 jsdelivr URL / git 安装 ref 里钉某个 tag 即锁定 FreeType 版本。
+定时任务监视上游 FreeType，出新版即自动构建+验证，**仅验证通过**才打 `vX.Y.Z` 并把 `dist/` 固化进该 tag。打包脚本/wrapper 改了但 FreeType 没升级，就原地强制重建同一个 `vX.Y.Z`（无 `-N` 后缀、无合成版本号）。在 jsdelivr URL / git 安装 ref 里钉某个 tag 即锁定 FreeType 版本。
 
 ## 可复现构建
 
