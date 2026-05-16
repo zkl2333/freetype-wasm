@@ -56,6 +56,7 @@ jobs:
 
       - name: 把 dist/ + 版本号固化进该 tag
         run: |
+          git config --global --add safe.directory "*"   # 容器里 repo 属主与 git 用户不一致，否则 fatal: not in a git directory
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name  "github-actions[bot]"
           git add -f dist package.json
