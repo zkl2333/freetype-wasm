@@ -4,7 +4,12 @@
 
 正确构建的通用 [FreeType](https://freetype.org/) WebAssembly 版：内存可增长（能加载数 MB 的 CJK 字体）、暴露**完整 FreeType 公共 C API**、Node 与浏览器通用、版本号对齐上游 FreeType。
 
-> 不发布到 npm。预构建产物见 [GitHub Releases](../../releases)，或用 Docker 自行构建。
+> 不发布到 npm。任选其一（`<tag>` 如 `v2.13.3-1`，即 FreeType 版本）：
+> - **jsdelivr**：`import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
+> - **npm 装 GitHub**：`npm i github:zkl2333/freetype-wasm#<tag>` → `import ... from "freetype-wasm"`
+> - **Release tar 包**：[Releases](../../releases) 下 `freetype-wasm-<tag>.tar.gz` 解包即自包含 `dist/`
+>
+> `dist/`（wasm+glue+wrapper）由 CI 在每个 release tag 上构建并提交进该 tag，故 jsdelivr/`/gh/` 与 git 安装可直接解析。
 
 ## 为什么有这个
 
@@ -61,7 +66,12 @@ ft.destroy();
 
 ## 版本号
 
-发布 tag 对齐上游 FreeType：`vX.Y.Z` = FreeType X.Y.Z；`vX.Y.Z-N` = 仍 FreeType X.Y.Z，仅打包/wrapper 第 N 次修订。
+发布 tag 对齐上游 FreeType，且 `package.json` `version` 由 CI 按 tag 盖同：
+
+- `vX.Y.Z` → FreeType X.Y.Z（version `X.Y.Z`）
+- `vX.Y.Z-N` → 仍 FreeType X.Y.Z，仅打包/wrapper 第 N 次修订（version `X.Y.Z-N`）
+
+在 jsdelivr URL / git 安装 ref 里钉某个 tag 即锁定 FreeType 版本。
 
 ## 可复现构建
 

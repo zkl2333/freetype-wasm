@@ -24,12 +24,20 @@ Background story: <https://blog.zkl2333.com/posts/eink-render-pure-node/>
 
 ## Install
 
-Download a [release](../../releases) and unpack it; the archive is a self-contained `dist/`.
+No npm publish. Pick one (`<tag>` e.g. `v2.13.3-1`, which equals the FreeType version):
+
+- **jsdelivr** (browser/Deno, ESM):
+  `import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
+- **npm from GitHub** (Node bundlers):
+  `npm i github:zkl2333/freetype-wasm#<tag>` → `import initFreeType, { FT } from "freetype-wasm"`
+- **Release tarball**: download `freetype-wasm-<tag>.tar.gz` from [Releases](../../releases) and unpack — a self-contained `dist/`.
+
+The `dist/` (wasm + glue + wrapper) is committed into each release tag by CI, so jsdelivr/`/gh/` and git-install resolve it directly.
 
 ## Quick start
 
 ```js
-import initFreeType, { FT } from "./dist/index.mjs";
+import initFreeType, { FT } from "./dist/index.mjs"; // or the jsdelivr / package URL above
 
 // Browser: the .wasm is fetched from the same directory automatically.
 const ft = await initFreeType();
@@ -74,10 +82,12 @@ const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 
 ## Versioning
 
-Release tags track upstream FreeType:
+Release tags track upstream FreeType, and `package.json` `version` is stamped to match:
 
-- `vX.Y.Z` → built from FreeType X.Y.Z
-- `vX.Y.Z-N` → still FreeType X.Y.Z, packaging/wrapper-only revision `N`
+- `vX.Y.Z` → built from FreeType X.Y.Z (`package.json` version `X.Y.Z`)
+- `vX.Y.Z-N` → still FreeType X.Y.Z, packaging/wrapper-only revision `N` (version `X.Y.Z-N`)
+
+Pin a tag in the jsdelivr URL / git-install ref to lock a FreeType version.
 
 ## Reproducible build
 

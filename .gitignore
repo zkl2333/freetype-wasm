@@ -1,4 +1,5 @@
-dist/
+# dist/ 不再忽略：CI 在 tag 上构建后把产物固化进该 tag，
+# 供 jsdelivr(/gh/@tag) 与 `npm i github:...#tag` 直接消费。
 node_modules/
 /tmp/
 test/*.ttc
