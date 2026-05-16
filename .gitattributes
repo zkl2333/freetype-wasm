@@ -1,0 +1,9 @@
+# 全部文本强制 LF —— build.sh / scripts/*.sh 要在 Linux CI 容器里 bash 跑，
+# CRLF 会导致 `/usr/bin/env: 'bash\r'`。
+* text=auto eol=lf
+*.wasm binary
+*.ttc binary
+*.ttf binary
+*.otf binary
+*.png binary
+*.tar.gz binary
