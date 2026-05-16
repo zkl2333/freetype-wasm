@@ -1,16 +1,19 @@
 name: track-upstream
 on:
   schedule:
-    - cron: "0 6 * * 1" # 每周一 06:00 UTC
+    - cron: "0 6 * * 1" # every Monday 06:00 UTC
   workflow_dispatch: {}
 
-# 监视上游 FreeType（GNU Savannah）。出现尚未打 tag 的新版时，本 workflow 自己
-# 一口气 构建 → 验证 → 把 dist/ + 版本号固化进 vX.Y.Z 并推送（scripts/finalize-tag.sh）。
+# Watch upstream FreeType (GNU Savannah). When a release appears that has no
+# tag yet, this workflow does everything itself in one shot: build -> verify
+# -> bake dist/ + version into vX.Y.Z and push (scripts/finalize-tag.sh).
 #
-# 为什么自完结、不再“打瘦 tag 让 build-tag.yml 收尾”：
-#   GitHub Actions 用默认 GITHUB_TOKEN 推的 tag 不会触发别的 workflow，
-#   旧设计里 build-tag.yml 根本不会被触发 → 自动追的 tag 永远是没 dist 的坏 tag。
-# 上游新版若破坏构建：finalize 里 set -e 失败 → 不打 tag → 坏版本不进分发。
+# Why self-contained instead of "push a thin tag and let build-tag.yml finish":
+#   a tag pushed with the default GITHUB_TOKEN does NOT trigger other
+#   workflows, so build-tag.yml would never run -> auto-tracked tags would
+#   forever lack dist (this actually happened to v2.14.3).
+# If the new upstream release breaks the build, set -e in finalize aborts ->
+# no tag is created -> the broken version never enters distribution.
 jobs:
   track:
     runs-on: ubuntu-latest
@@ -22,10 +25,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 装 cmake / git
+      - name: install cmake / git
         run: apt-get update && apt-get install -y --no-install-recommends cmake git
 
-      - name: 算“上游最新” vs “已覆盖”
+      - name: compute "upstream latest" vs "covered"
         id: chk
         run: |
           git config --global --add safe.directory "*"
@@ -33,20 +36,20 @@ jobs:
             | grep -oE 'freetype-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz' \
             | sed -E 's/freetype-([0-9.]+)\.tar\.gz/\1/' \
             | sort -V | tail -1)"
-          [ -n "$LATEST" ] || { echo "!! 没解析到上游版本"; exit 1; }
-          # 已覆盖：只认严格 vX.Y.Z（与上游 1:1，没有 -N）
+          [ -n "$LATEST" ] || { echo "!! could not parse an upstream version"; exit 1; }
+          # covered: only strict vX.Y.Z counts (1:1 with upstream, no -N)
           COVERED="$(git tag -l 'v*' | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | sort -u)"
-          echo ">>> 上游最新 FreeType=$LATEST"
-          echo ">>> 已覆盖: $(echo "$COVERED" | tr '\n' ' ')"
+          echo ">>> upstream latest FreeType=$LATEST"
+          echo ">>> covered: $(echo "$COVERED" | tr '\n' ' ')"
           if echo "$COVERED" | grep -qx "$LATEST"; then
             echo "new=0" >> "$GITHUB_OUTPUT"
-            echo ">>> 已是最新，无事可做"
+            echo ">>> already up to date, nothing to do"
           else
             echo "new=1" >> "$GITHUB_OUTPUT"
             echo "ver=$LATEST" >> "$GITHUB_OUTPUT"
-            echo ">>> 发现新版 $LATEST，将构建验证后固化进 v$LATEST"
+            echo ">>> new release $LATEST, will build+verify then bake into v$LATEST"
           fi
 
-      - name: 构建 + 验证 + 固化进 v$LATEST（不过则不打 tag）
+      - name: build + verify + bake into v$LATEST (no tag if it fails)
         if: steps.chk.outputs.new == '1'
         run: FT_VER="${{ steps.chk.outputs.ver }}" bash scripts/finalize-tag.sh
