@@ -12,6 +12,10 @@ FT_VER="${FT_VER:-2.14.3}"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/dist}"
 WORK="${WORK:-/tmp/ftwasm-build}"
 mkdir -p "$WORK" "$OUT_DIR"
+# Hermetic output: empty dist/ contents first so a checked-out build commit's
+# (or a stale local) artifacts can never leak into the committed tag. Clears
+# contents only, not the dir itself (it may be a docker bind mount).
+find "$OUT_DIR" -mindepth 1 -delete 2>/dev/null || true
 cd "$WORK"
 
 echo ">>> FreeType ${FT_VER}（GNU Savannah，不依赖 github 直连）"
