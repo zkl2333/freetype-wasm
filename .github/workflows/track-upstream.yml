@@ -4,10 +4,13 @@ on:
     - cron: "0 6 * * 1" # 每周一 06:00 UTC
   workflow_dispatch: {}
 
-# 监视上游 FreeType（GNU Savannah）。出现尚未打 tag 的新版时：
-# 先就地构建+验证作为"门"，仅当验证通过，才在 main 上打一个"瘦" tag vX.Y.Z
-# 并推送 → 触发 build-tag.yml 真正构建并把 dist/ 固化进该 tag。
-# 上游新版若破坏构建：验证不过 → 不打 tag → 坏版本不会进分发。
+# 监视上游 FreeType（GNU Savannah）。出现尚未打 tag 的新版时，本 workflow 自己
+# 一口气 构建 → 验证 → 把 dist/ + 版本号固化进 vX.Y.Z 并推送（scripts/finalize-tag.sh）。
+#
+# 为什么自完结、不再“打瘦 tag 让 build-tag.yml 收尾”：
+#   GitHub Actions 用默认 GITHUB_TOKEN 推的 tag 不会触发别的 workflow，
+#   旧设计里 build-tag.yml 根本不会被触发 → 自动追的 tag 永远是没 dist 的坏 tag。
+# 上游新版若破坏构建：finalize 里 set -e 失败 → 不打 tag → 坏版本不进分发。
 jobs:
   track:
     runs-on: ubuntu-latest
@@ -22,7 +25,7 @@ jobs:
       - name: 装 cmake / git
         run: apt-get update && apt-get install -y --no-install-recommends cmake git
 
-      - name: 算"上游最新" vs "已覆盖"
+      - name: 算“上游最新” vs “已覆盖”
         id: chk
         run: |
           git config --global --add safe.directory "*"
@@ -31,8 +34,8 @@ jobs:
             | sed -E 's/freetype-([0-9.]+)\.tar\.gz/\1/' \
             | sort -V | tail -1)"
           [ -n "$LATEST" ] || { echo "!! 没解析到上游版本"; exit 1; }
-          # 已覆盖的 FreeType 版本（tag vX.Y.Z[-N] 去 v 去 -N）
-          COVERED="$(git tag -l 'v*' | sed -E 's/^v//; s/-.*$//' | sort -u)"
+          # 已覆盖：只认严格 vX.Y.Z（与上游 1:1，没有 -N）
+          COVERED="$(git tag -l 'v*' | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' | sort -u)"
           echo ">>> 上游最新 FreeType=$LATEST"
           echo ">>> 已覆盖: $(echo "$COVERED" | tr '\n' ' ')"
           if echo "$COVERED" | grep -qx "$LATEST"; then
@@ -41,23 +44,9 @@ jobs:
           else
             echo "new=1" >> "$GITHUB_OUTPUT"
             echo "ver=$LATEST" >> "$GITHUB_OUTPUT"
-            echo ">>> 发现新版 $LATEST，将构建验证后打 tag"
+            echo ">>> 发现新版 $LATEST，将构建验证后固化进 v$LATEST"
           fi
 
-      - name: 构建新版（门）
+      - name: 构建 + 验证 + 固化进 v$LATEST（不过则不打 tag）
         if: steps.chk.outputs.new == '1'
-        run: FT_VER="${{ steps.chk.outputs.ver }}" bash build.sh
-
-      - name: 验证新版（门，不过则不打 tag）
-        if: steps.chk.outputs.new == '1'
-        run: node test/test.mjs
-
-      - name: 验证通过 → 打 vX.Y.Z 瘦 tag（build-tag.yml 收尾固化 dist）
-        if: steps.chk.outputs.new == '1'
-        run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name  "github-actions[bot]"
-          TAG="v${{ steps.chk.outputs.ver }}"
-          git tag "$TAG"
-          git push origin "refs/tags/$TAG"
-          echo ">>> 已打并推送 $TAG（build-tag.yml 将构建并把 dist 固化进该 tag）"
+        run: FT_VER="${{ steps.chk.outputs.ver }}" bash scripts/finalize-tag.sh

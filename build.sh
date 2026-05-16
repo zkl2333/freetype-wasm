@@ -8,7 +8,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FT_VER="${FT_VER:-2.13.3}"
+FT_VER="${FT_VER:-2.14.3}"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/dist}"
 WORK="${WORK:-/tmp/ftwasm-build}"
 mkdir -p "$WORK" "$OUT_DIR"

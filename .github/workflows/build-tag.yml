@@ -4,14 +4,15 @@ on:
     tags: ["v*"]
 
 # 分发就是 git tag 本身（不发 npm、不发 GitHub Release）。
-# tag 与上游 FreeType 版本对齐：
-#   v2.13.3   → 构建 FreeType 2.13.3
-#   v2.13.3-1 → 仍 FreeType 2.13.3，仅本仓库打包/wrapper 第 1 次修订
+# tag 与上游 FreeType 1:1：v2.14.3 → 构建 FreeType 2.14.3。
+# 不存在 -N 修订 tag —— 打包/wrapper 改了但 FreeType 没升级，就原地强制重建同一个 vX.Y.Z。
 #
-# 流程：推一个"瘦" tag → CI 构建+验证 → 把 dist/ 与同步后的版本号固化进该 tag → 于是
+# 用途：人手推一个“瘦” tag（或重推已有 tag）→ 本 workflow 构建+验证 →
+# 把 dist/ + 同步后的版本号固化进该 tag（不碰 main）。于是
 #   jsdelivr: https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs
 #   npm:      npm i github:zkl2333/freetype-wasm#<tag>
 # 都直接可消费。验证不过则 run 红、不固化 → 坏产物不会进 tag。
+# （自动追上游见 track-upstream.yml，它自带 finalize，不依赖触发本 workflow。）
 jobs:
   build-tag:
     runs-on: ubuntu-latest
@@ -26,34 +27,17 @@ jobs:
       - name: 装 cmake / git
         run: apt-get update && apt-get install -y --no-install-recommends cmake git
 
-      - name: 从 tag 解析版本
+      - name: 从 tag 解析上游版本（强制 1:1，拒 -N）
         id: ver
         run: |
           TAG="${GITHUB_REF_NAME}"
-          PKG_VER="${TAG#v}"          # 完整：2.13.3 或 2.13.3-1（package.json 用，和上游同步）
-          FT_VER="${PKG_VER%%-*}"     # 仅 FreeType：2.13.3
-          echo "pkg=$PKG_VER" >> "$GITHUB_OUTPUT"
-          echo "ft=$FT_VER"   >> "$GITHUB_OUTPUT"
-          echo ">>> tag=$TAG → FreeType $FT_VER, package version $PKG_VER"
+          if ! printf '%s' "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "!! tag '$TAG' 不是 vX.Y.Z —— tag 必须与上游 FreeType 1:1，不接受 -N/任意后缀"
+            exit 1
+          fi
+          FT_VER="${TAG#v}"
+          echo "ft=$FT_VER" >> "$GITHUB_OUTPUT"
+          echo ">>> tag=$TAG → FreeType $FT_VER"
 
-      - name: 构建
-        run: FT_VER="${{ steps.ver.outputs.ft }}" bash build.sh
-
-      - name: 验证（不过则不固化，坏产物不进 tag）
-        run: node test/test.mjs
-
-      - name: 版本号同步上游（盖进 package.json）
-        run: |
-          node -e 'const f="package.json";const j=JSON.parse(require("fs").readFileSync(f));j.version="${{ steps.ver.outputs.pkg }}";require("fs").writeFileSync(f,JSON.stringify(j,null,2)+"\n")'
-          grep '"version"' package.json
-
-      - name: 把 dist/ + 版本号固化进该 tag
-        run: |
-          git config --global --add safe.directory "*"   # 容器里 repo 属主与 git 用户不一致，否则 fatal: not in a git directory
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name  "github-actions[bot]"
-          git add -f dist package.json
-          git commit -m "build: ${GITHUB_REF_NAME} 产物（FreeType ${{ steps.ver.outputs.ft }}）"
-          git tag -f "${GITHUB_REF_NAME}"
-          git push -f origin "refs/tags/${GITHUB_REF_NAME}"
-          git push origin "HEAD:main" || echo "(main 推送跳过/冲突，不影响 tag)"
+      - name: 构建 + 验证 + 把 dist/ 固化进该 tag
+        run: FT_VER="${{ steps.ver.outputs.ft }}" bash scripts/finalize-tag.sh

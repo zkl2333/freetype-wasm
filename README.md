@@ -24,7 +24,7 @@ Background story: <https://blog.zkl2333.com/posts/eink-render-pure-node/>
 
 ## Install
 
-No npm publish, no GitHub Releases — distribution is the git tags themselves. CI builds on every tag and commits the `dist/` (wasm + glue + wrapper) into that tag, so it is consumable directly. Pick one (`<tag>` e.g. `v2.13.3-3`, which tracks the FreeType version):
+No npm publish, no GitHub Releases — distribution is the git tags themselves. CI builds on every tag and commits the `dist/` (wasm + glue + wrapper) into that tag, so it is consumable directly. Tags map 1:1 to upstream FreeType, so `<tag>` is just `v` + the FreeType version, e.g. `v2.14.3`:
 
 - **jsdelivr** (browser/Deno, ESM):
   `import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
@@ -82,12 +82,11 @@ const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 
 ## Versioning
 
-Tags track upstream FreeType, and `package.json` `version` is stamped to match:
+Tags map **1:1 to upstream FreeType** — there are no tags that don't exist upstream:
 
-- `vX.Y.Z` → built from FreeType X.Y.Z (`package.json` version `X.Y.Z`)
-- `vX.Y.Z-N` → still FreeType X.Y.Z, packaging/wrapper-only revision `N` (version `X.Y.Z-N`)
+- `vX.Y.Z` → built from FreeType X.Y.Z (`package.json` `version` stamped to `X.Y.Z`)
 
-A scheduled CI job watches upstream FreeType; when a new release appears it builds, verifies, and (only if the verification passes) creates the matching `vX.Y.Z` tag automatically. Pin a tag in the jsdelivr URL / git-install ref to lock a FreeType version.
+A scheduled CI job watches upstream FreeType; when a new release appears it builds, verifies, and (only if the verification passes) tags `vX.Y.Z` with the built `dist/` committed into it. If the build scripts or wrapper change without a FreeType bump, the existing `vX.Y.Z` tag is rebuilt in place (force-updated) — no `-N` suffixes, no synthetic versions. Pin a tag in the jsdelivr URL / git-install ref to lock a FreeType version.
 
 ## Reproducible build
 
