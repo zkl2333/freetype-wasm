@@ -1,6 +1,6 @@
 {
   "name": "freetype-wasm",
-  "version": "2.13.3-2",
+  "version": "2.13.3-3",
   "private": true,
   "type": "module",
   "description": "完整 FreeType 编成的通用 WASM 模块：内存可增长（吃得下大 CJK 字体）、暴露完整公共 C API、Node+浏览器通用。不发 npm；用 jsdelivr 或 `npm i github:zkl2333/freetype-wasm#<tag>`。",
