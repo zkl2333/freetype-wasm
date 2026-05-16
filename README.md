@@ -82,11 +82,14 @@ const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 
 ## Versioning
 
-Tags map **1:1 to upstream FreeType** — there are no tags that don't exist upstream:
+Tags map **1:1 to upstream FreeType** — there are no tags that don't exist upstream. `vX.Y.Z` is built from FreeType X.Y.Z (`package.json` `version` stamped to `X.Y.Z`).
 
-- `vX.Y.Z` → built from FreeType X.Y.Z (`package.json` `version` stamped to `X.Y.Z`)
+`vX.Y.Z` is a **rolling pointer to the latest good build of that FreeType version**, not a frozen artifact. A scheduled CI job watches upstream and auto-tags new releases (build + verify gated). If the build scripts/wrapper improve without a FreeType bump, the same `vX.Y.Z` is rebuilt in place (force-moved, no `-N`/synthetic versions) and jsdelivr's tag cache is purged automatically so consumers see the new build promptly.
 
-A scheduled CI job watches upstream FreeType; when a new release appears it builds, verifies, and (only if the verification passes) tags `vX.Y.Z` with the built `dist/` committed into it. If the build scripts or wrapper change without a FreeType bump, the existing `vX.Y.Z` tag is rebuilt in place (force-updated) — no `-N` suffixes, no synthetic versions. Pin a tag in the jsdelivr URL / git-install ref to lock a FreeType version.
+- **Want the newest good build of a FreeType version** → pin the tag: `@v2.14.3`.
+- **Want a byte-stable, never-changing artifact** (reproducibility) → pin the **build commit SHA** instead of the tag. jsdelivr and `npm i github:…#<sha>` both accept a commit SHA, and a SHA is immutable by definition. Each build's SHA is printed in its `build-tag` CI log.
+
+To re-release a new build of the same FreeType version: run the **build-tag** workflow manually (Actions → build-tag → Run workflow → enter the version). No local tagging needed.
 
 ## Reproducible build
 

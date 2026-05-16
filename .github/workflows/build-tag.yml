@@ -2,21 +2,27 @@ name: build-tag
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Upstream FreeType version to (re)build & release, e.g. 2.14.3"
+        required: true
+        type: string
 
 # Distribution IS the git tag itself (no npm, no GitHub Release).
 # Tags map 1:1 to upstream FreeType: v2.14.3 builds FreeType 2.14.3.
-# There are no -N revision tags -- if the build scripts/wrapper change
-# without a FreeType bump, force-rebuild the same vX.Y.Z in place.
+# There are no -N revision tags. vX.Y.Z is a ROLLING pointer to the latest
+# build of that FreeType version; re-release a new build config of the same
+# version by either re-pushing the tag OR (easier) running this workflow
+# manually with the version input -- no local force-push needed.
+# Byte-stable consumers pin the build commit SHA (printed by finalize-tag.sh).
 #
-# Use: a human pushes a thin tag (or re-pushes an existing one) -> this
-# workflow builds + verifies -> bakes dist/ + the synced version into the
-# tag (main untouched). Then both:
 #   jsdelivr: https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs
 #   npm:      npm i github:zkl2333/freetype-wasm#<tag>
-# are directly consumable. If verify fails the run is red and nothing is
-# baked -> bad artifacts never enter a tag.
-# (Auto-tracking upstream lives in track-upstream.yml, which finalizes
-# itself and does NOT rely on triggering this workflow.)
+#
+# If verify fails the run is red and nothing is baked -> bad artifacts never
+# enter a tag. (Auto-tracking upstream lives in track-upstream.yml, which
+# finalizes itself and does NOT rely on triggering this workflow.)
 jobs:
   build-tag:
     runs-on: ubuntu-latest
@@ -31,17 +37,22 @@ jobs:
       - name: install cmake / git
         run: apt-get update && apt-get install -y --no-install-recommends cmake git
 
-      - name: parse upstream version from tag (strict 1:1, reject -N)
+      - name: resolve upstream version (strict 1:1, reject -N)
         id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          if ! printf '%s' "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "!! tag '$TAG' is not vX.Y.Z -- tags must map 1:1 to upstream FreeType, no -N / suffixes"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RAW="${INPUT_VERSION#v}"          # accept "2.14.3" or "v2.14.3"
+          else
+            RAW="${GITHUB_REF_NAME#v}"        # tag push: v2.14.3 -> 2.14.3
+          fi
+          if ! printf '%s' "$RAW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "!! '$RAW' is not X.Y.Z -- must map 1:1 to upstream FreeType, no -N / suffixes"
             exit 1
           fi
-          FT_VER="${TAG#v}"
-          echo "ft=$FT_VER" >> "$GITHUB_OUTPUT"
-          echo ">>> tag=$TAG -> FreeType $FT_VER"
+          echo "ft=$RAW" >> "$GITHUB_OUTPUT"
+          echo ">>> FreeType $RAW -> tag v$RAW"
 
-      - name: build + verify + bake dist/ into the tag
+      - name: build + verify + bake dist/ into the tag (+ purge jsdelivr)
         run: FT_VER="${{ steps.ver.outputs.ft }}" bash scripts/finalize-tag.sh

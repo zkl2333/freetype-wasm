@@ -66,11 +66,14 @@ ft.destroy();
 
 ## 版本号
 
-tag 与上游 FreeType **1:1** —— 不存在上游没有的 tag：
+tag 与上游 FreeType **1:1** —— 不存在上游没有的 tag。`vX.Y.Z` 由 FreeType X.Y.Z 构建（`package.json` `version` 由 CI 盖成 `X.Y.Z`）。
 
-- `vX.Y.Z` → FreeType X.Y.Z（`package.json` `version` 由 CI 盖成 `X.Y.Z`）
+`vX.Y.Z` 是**该 FreeType 版本"当前最优构建"的滚动指针**，不是冻结产物。定时任务监视上游、新版自动打 tag（构建+验证为门）。打包脚本/wrapper 改进但 FreeType 没升级时，原地强制重建同一个 `vX.Y.Z`（无 `-N`/合成版本号），并自动 purge jsdelivr 的 tag 缓存，消费方很快就能拿到新构建。
 
-定时任务监视上游 FreeType，出新版即自动构建+验证，**仅验证通过**才打 `vX.Y.Z` 并把 `dist/` 固化进该 tag。打包脚本/wrapper 改了但 FreeType 没升级，就原地强制重建同一个 `vX.Y.Z`（无 `-N` 后缀、无合成版本号）。在 jsdelivr URL / git 安装 ref 里钉某个 tag 即锁定 FreeType 版本。
+- **要某 FreeType 版本的最新好构建** → 钉 tag：`@v2.14.3`。
+- **要字节级永不变的产物**（可复现） → 钉**构建提交 SHA**，而非 tag。jsdelivr 和 `npm i github:…#<sha>` 都吃 SHA，SHA 天然不可变。每次构建的 SHA 打在该次 `build-tag` CI 日志里。
+
+重发同一 FreeType 版本的新构建：手动跑 **build-tag** workflow（Actions → build-tag → Run workflow → 填版本号），无需本地打 tag。
 
 ## 可复现构建
 
