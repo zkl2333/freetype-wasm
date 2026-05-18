@@ -3,7 +3,7 @@
   "version": "2.14.3",
   "private": true,
   "type": "module",
-  "description": "完整 FreeType 编成的通用 WASM 模块：内存可增长（吃得下大 CJK 字体）、暴露完整公共 C API、Node+浏览器通用。不发 npm；用 jsdelivr 或 `npm i github:zkl2333/freetype-wasm#<tag>`。",
+  "description": "完整 FreeType 编译的通用 WASM 模块：内存可增长（吃得下大 CJK 字体）、暴露完整公共 C API、Node+浏览器通用。npm 包计划中，暂用 `npm i github:zkl2333/freetype-wasm#<tag>` 消费（jsdelivr 可选）。",
   "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

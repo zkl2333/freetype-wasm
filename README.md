@@ -1,43 +1,41 @@
 # freetype-wasm
 
-A correctly-built, general-purpose WebAssembly build of [FreeType](https://freetype.org/): memory-growable (loads multi-MB CJK fonts), exposes the **complete FreeType public C API**, works in Node and the browser, versioned to upstream FreeType.
+A general-purpose WebAssembly build of [FreeType](https://freetype.org/): memory-growable (loads multi-MB CJK fonts), exposes the **complete FreeType public C API**, works in Node and the browser, versioned to upstream FreeType.
 
 [中文说明 → README.zh-CN.md](./README.zh-CN.md)
 
-> Not published to npm. Consumed straight from git tags via jsdelivr or `npm i github:`, or built yourself with Docker.
+> Not on npm yet (package planned). For now, install from git tags via `npm i github:` (or jsdelivr), or build it yourself with Docker.
 
 ## Why this exists
 
 The only general "FreeType → WASM" package on npm, [`freetype-wasm`](https://www.npmjs.com/package/freetype-wasm), has been unmaintained since 2022. Its prebuilt `.wasm` is compiled **without `ALLOW_MEMORY_GROWTH`** and with a fixed ~16 MB heap that cannot be raised from JS, so loading a multi-MB CJK font aborts with `Aborted(OOM)` (CJK fonts have large glyph/charmap tables; FreeType's allocations scale accordingly).
 
-That is a packaging problem, not a FreeType bug. The other options don't fill this niche either: HarfBuzz-WASM shapes but does not rasterize, CanvasKit is Skia (anti-aliased, no hinted 1-bit), fontkit/opentype.js have no hinting, `freetype2` is a native node-gyp addon rather than WASM.
+That OOM is a build-config problem, not a FreeType bug. No other library fills the same need either: FreeType-quality hinted rasterization (both 1-bit MONO and AA) as WASM, in Node and the browser. HarfBuzz-WASM only shapes text, it does not rasterize; CanvasKit is Skia, anti-aliased only with no hinted 1-bit; fontkit and opentype.js do not hint; the `freetype2` npm package is a native node-gyp addon, not WASM.
 
-This repository does the build correctly:
+What this build provides:
 
-- **`ALLOW_MEMORY_GROWTH=1`** — multi-MB CJK fonts no longer OOM (the core fix).
-- Exposes the **complete FreeType public C API** (every `FT_EXPORT` symbol that exists in the build, derived from the headers and intersected with the actual library — not a hand-picked slice), plus Emscripten runtime helpers and wasm32 struct offsets, so callers can reach any FreeType function.
-- A thin JS wrapper (`FreeType` / `Face`) covers the common path. MONO vs. anti-aliased rendering is chosen by the caller via load flags — this library does not decide for you.
+- **`ALLOW_MEMORY_GROWTH=1`**: multi-MB CJK fonts no longer OOM.
+- Exposes the **complete FreeType public C API**: every `FT_EXPORT` symbol present in the build, taken from the headers and intersected with the actual library (not a hand-picked subset), plus Emscripten runtime helpers and wasm32 struct offsets, so callers can reach any FreeType function.
+- A thin JS wrapper (`FreeType` / `Face`) covers the common path; the caller selects MONO or anti-aliased output via load flags.
 - Node and browser (`ENVIRONMENT=node,web`).
 - Reproducible build; release tags track upstream FreeType versions.
 
-Background story: <https://blog.zkl2333.com/posts/eink-render-pure-node/>
-
 ## Install
 
-No npm publish, no GitHub Releases — distribution is the git tags themselves. CI builds on every tag and commits the `dist/` (wasm + glue + wrapper) into that tag, so it is consumable directly. Tags map 1:1 to upstream FreeType, so `<tag>` is just `v` + the FreeType version, e.g. `v2.14.3`:
+Distribution is the git tags (npm package planned but not yet published; no GitHub Releases): CI builds on every tag and commits the `dist/` (wasm + glue + wrapper) into it, so the tag is consumable directly. Tags map 1:1 to upstream FreeType, so `<tag>` is just `v` + the FreeType version, e.g. `v2.14.3`:
 
-- **jsdelivr** (browser/Deno, ESM):
-  `import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
 - **npm from GitHub** (Node bundlers):
   `npm i github:zkl2333/freetype-wasm#<tag>` → `import initFreeType, { FT } from "freetype-wasm"`
 - **git**: `git clone --branch <tag>` and use `dist/`, or `git archive`.
+- **jsdelivr** (optional — browser/Deno, ESM, no bundler):
+  `import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
 
 Available tags: see the [tags page](../../tags). New upstream FreeType releases are picked up automatically (a scheduled job builds, verifies, and tags them).
 
 ## Quick start
 
 ```js
-import initFreeType, { FT } from "./dist/index.mjs"; // or the jsdelivr / package URL above
+import initFreeType, { FT } from "./dist/index.mjs"; // or the package / jsdelivr URL above
 
 // Browser: the .wasm is fetched from the same directory automatically.
 const ft = await initFreeType();
@@ -82,7 +80,7 @@ const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 
 ## Versioning
 
-Tags map **1:1 to upstream FreeType** — there are no tags that don't exist upstream. `vX.Y.Z` is built from FreeType X.Y.Z (`package.json` `version` stamped to `X.Y.Z`).
+Tags map **1:1 to upstream FreeType** (no tag exists that upstream doesn't). `vX.Y.Z` is built from FreeType X.Y.Z (`package.json` `version` stamped to `X.Y.Z`).
 
 `vX.Y.Z` is a **rolling pointer to the latest good build of that FreeType version**, not a frozen artifact. A scheduled CI job watches upstream and auto-tags new releases (build + verify gated). If the build scripts/wrapper improve without a FreeType bump, the same `vX.Y.Z` is rebuilt in place (force-moved, no `-N`/synthetic versions) and jsdelivr's tag cache is purged automatically so consumers see the new build promptly.
 

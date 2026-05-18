@@ -1,5 +1,5 @@
 # dist/ 只进 tag，不进 main：CI 在该 tag 的构建提交里 git add -f dist
-# （供 jsdelivr(/gh/@tag) 与 `npm i github:...#tag` 直接消费），main 保持纯源码。
+# （供 `npm i github:...#tag` 与 jsdelivr(/gh/@tag) 直接消费），main 保持纯源码。
 dist/
 node_modules/
 /tmp/

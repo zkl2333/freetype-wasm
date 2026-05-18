@@ -9,7 +9,7 @@ on:
         required: true
         type: string
 
-# Distribution IS the git tag itself (no npm, no GitHub Release).
+# Distribution IS the git tag itself (npm package planned, not yet; no GitHub Release).
 # Tags map 1:1 to upstream FreeType: v2.14.3 builds FreeType 2.14.3.
 # There are no -N revision tags. vX.Y.Z is a ROLLING pointer to the latest
 # build of that FreeType version; re-release a new build config of the same

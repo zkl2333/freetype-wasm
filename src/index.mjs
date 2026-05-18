@@ -123,7 +123,7 @@ export class FreeType {
     return v;
   }
 
-  /** 从字体字节建 Face（TTF/OTF/TTC/Type1/CFF；本构建不支持 WOFF2） */
+  /** 从字体字节建 Face（TTF/OTF/TTC/WOFF/WOFF2/Type1/CFF；WOFF2 已编入 brotli） */
   newFace(bytes, faceIndex = 0) {
     const m = this.module;
     const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
