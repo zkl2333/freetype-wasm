@@ -35,16 +35,10 @@ if (pkg.publishConfig?.registry !== "https://registry.npmjs.org/") {
   throw new Error(`unexpected publish registry: ${pkg.publishConfig?.registry}`);
 }
 if (!/^\d+\.\d+\.\d+$/.test(pkg.version)) {
-  throw new Error(`package version must be strict SemVer X.Y.Z: ${pkg.version}`);
+  throw new Error(`version must match the FreeType X.Y.Z version: ${pkg.version}`);
 }
-if (!/^\d+\.\d+\.\d+$/.test(pkg.freetypeVersion)) {
-  throw new Error(`freetypeVersion must be a strict X.Y.Z version: ${pkg.freetypeVersion}`);
-}
-if (process.env.PKG_VER && pkg.version !== process.env.PKG_VER) {
-  throw new Error(`package version mismatch: expected ${process.env.PKG_VER}, got ${pkg.version}`);
-}
-if (process.env.FT_VER && pkg.freetypeVersion !== process.env.FT_VER) {
-  throw new Error(`FreeType version mismatch: expected ${process.env.FT_VER}, got ${pkg.freetypeVersion}`);
+if (process.env.FT_VER && pkg.version !== process.env.FT_VER) {
+  throw new Error(`version mismatch: expected FreeType ${process.env.FT_VER}, got ${pkg.version}`);
 }
 
 for (const file of expectedFiles) {
@@ -91,4 +85,4 @@ if (!wasmMagic.equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]))) {
   throw new Error("dist/freetype.wasm is not a WebAssembly binary");
 }
 
-console.log(`package ready: ${pkg.name}@${pkg.version} (FreeType ${pkg.freetypeVersion})`);
+console.log(`package ready: ${pkg.name}@${pkg.version} (FreeType ${pkg.version})`);

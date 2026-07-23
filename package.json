@@ -1,7 +1,6 @@
 {
   "name": "@zkl2333/freetype-wasm",
-  "version": "3.0.0",
-  "freetypeVersion": "2.14.3",
+  "version": "2.14.3",
   "type": "module",
   "description": "A memory-growable FreeType WebAssembly build with the complete public C API for Node.js, browsers, and workers.",
   "main": "./dist/index.mjs",

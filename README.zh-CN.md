@@ -1,6 +1,6 @@
 # freetype-wasm（中文）
 
-通用 [FreeType](https://freetype.org/) WebAssembly 版：内存可增长（能加载数 MB 的 CJK 字体）、暴露**完整 FreeType 公共 C API**，可用于 Node、浏览器与 Module Worker。
+通用 [FreeType](https://freetype.org/) WebAssembly 版：内存可增长（能加载数 MB 的 CJK 字体）、暴露**完整 FreeType 公共 C API**，可用于 Node、浏览器与 Module Worker，版本号跟随 FreeType 上游。
 
 [English → README.md](./README.md)
 
@@ -32,7 +32,7 @@ npm install @zkl2333/freetype-wasm
 import initFreeType, { FT } from "@zkl2333/freetype-wasm";
 ```
 
-CI 会把 `dist/`（wasm + glue + wrapper）提交到每个不可变的包发布 tag。`<tag>` 是 `v` + npm 包版本，例如 `v3.0.0`。其他分发方式：
+CI 会把 `dist/`（wasm + glue + wrapper）提交到每个不可变的包发布 tag。`<tag>` 是 `v` + FreeType/npm 版本，例如 `v2.14.3`。其他分发方式：
 
 - **npm 装 GitHub**：`npm i github:zkl2333/freetype-wasm#<tag>`
 - **git**：`git clone --branch <tag>` 用 `dist/`，或 `git archive`
@@ -104,16 +104,14 @@ const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 
 ## 版本号
 
-npm 包 SemVer 与内置 FreeType 版本独立管理：`package.json.version` 是 npm/Git 发布版本，`package.json.freetypeVersion` 记录上游库版本。例如包 `3.0.0` 内置 FreeType `2.14.3`。
+npm 版本与 Git tag 严格跟随 FreeType 上游 **1:1**：包 `X.Y.Z` 和 tag `vX.Y.Z` 都内置 FreeType `X.Y.Z`，发布后两者均不可变。
 
-npm 版本和 `vX.Y.Z` Git tag 都不可变，并统一使用包版本。同一 FreeType 下兼容的 wrapper/构建修复递增包 patch；升级 FreeType 或兼容新增 API 通常递增 minor；JS 或 TypeScript API 有破坏性变化时递增 major。
+**publish-npm** workflow 每周检查 Savannah。发现新的 FreeType 正式版本后，CI 会验签/验哈希、隔离构建、跑测试、创建同版本不可变 tag，再通过 npm Trusted Publisher OIDC 携 provenance 发布。也可以手动输入一个上游版本来重试发布。
 
-每次发布都在 GitHub Actions 的 **publish-npm** workflow 中手动输入两个版本。CI 会验签/验哈希、隔离构建、跑测试、创建不可变 tag，再通过 npm Trusted Publisher OIDC 携 provenance 发布；本地不执行 `npm publish`，也不手动打 tag。
-
-旧 npm/Git 版本 `2.14.3` 会冻结在最初发布内容；使用 `^2.14.3` 的项目不会自动跨到包 `3.0.0`。
+某个 FreeType 版本发布后新增的 wrapper 或构建改进只保留在 `main`，等待下一个上游正式版本；绝不使用不同字节覆盖已有 npm 版本或 tag。
 
 - **要当前 npm 版本**：`npm install @zkl2333/freetype-wasm`。
-- **要不可变的 Git/jsdelivr 版本**：钉 `v3.0.0` 或对应 commit SHA。
+- **要不可变的 Git/jsdelivr 版本**：钉上游 tag（如 `v2.14.3`）或对应 commit SHA。
 
 ## 可重复构建流程
 

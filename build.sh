@@ -8,7 +8,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FT_VER="${FT_VER:-$(node -p 'require(process.argv[1]).freetypeVersion' "$SCRIPT_DIR/package.json")}"
+FT_VER="${FT_VER:-$(node -p 'require(process.argv[1]).version' "$SCRIPT_DIR/package.json")}"
 if ! [[ "$FT_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "!! FT_VER 必须是严格的 X.Y.Z: $FT_VER" >&2
   exit 1

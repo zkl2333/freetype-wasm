@@ -20,12 +20,11 @@ jobs:
       - name: 装构建与验签工具
         run: apt-get update && apt-get install -y --no-install-recommends cmake gnupg gpgv
 
-      - name: 从 package.json 读取双版本
+      - name: 从 package.json 读取 FreeType 版本
         shell: bash
         run: |
           set -euo pipefail
-          echo "PKG_VER=$(node -p 'require("./package.json").version')" >> "$GITHUB_ENV"
-          echo "FT_VER=$(node -p 'require("./package.json").freetypeVersion')" >> "$GITHUB_ENV"
+          echo "FT_VER=$(node -p 'require("./package.json").version')" >> "$GITHUB_ENV"
 
       - name: 构建（FreeType → WASM，完整公共 API + 内存可增长）
         run: bash build.sh

@@ -1,6 +1,6 @@
 # freetype-wasm
 
-A general-purpose WebAssembly build of [FreeType](https://freetype.org/): memory-growable (loads multi-MB CJK fonts), exposes the **complete FreeType public C API**, and works in Node, browsers, and module Workers.
+A general-purpose WebAssembly build of [FreeType](https://freetype.org/): memory-growable (loads multi-MB CJK fonts), exposes the **complete FreeType public C API**, works in Node, browsers, and module Workers, and follows upstream FreeType versions.
 
 [中文说明 → README.zh-CN.md](./README.zh-CN.md)
 
@@ -32,7 +32,7 @@ npm install @zkl2333/freetype-wasm
 import initFreeType, { FT } from "@zkl2333/freetype-wasm";
 ```
 
-CI commits `dist/` (wasm + glue + wrapper) into each immutable package release tag. `<tag>` is `v` + the npm package version, for example `v3.0.0`. Alternative distribution routes:
+CI commits `dist/` (wasm + glue + wrapper) into each immutable package release tag. `<tag>` is `v` + the upstream FreeType/npm version, for example `v2.14.3`. Alternative distribution routes:
 
 - **npm from GitHub**: `npm i github:zkl2333/freetype-wasm#<tag>`
 - **git**: `git clone --branch <tag>` and use `dist/`, or `git archive`.
@@ -104,16 +104,14 @@ For handles created by the convenience layer, do not change their native referen
 
 ## Versioning
 
-Package SemVer and the bundled FreeType version are independent. `package.json.version` is the npm/Git release version; `package.json.freetypeVersion` records the upstream library version. Package `3.0.0`, for example, bundles FreeType `2.14.3`.
+npm versions and Git tags follow upstream FreeType **1:1**: package `X.Y.Z` and tag `vX.Y.Z` contain FreeType `X.Y.Z`. Both surfaces are immutable after publication.
 
-Both npm versions and `vX.Y.Z` Git tags are immutable and use the package version. Compatible wrapper/build fixes for the same FreeType release increment the package patch; a FreeType upgrade or compatible API addition normally increments the minor; breaking JS or TypeScript API changes increment the major.
+The **publish-npm** workflow checks Savannah weekly. When a new FreeType release appears, CI verifies source signatures and hashes, builds and tests in isolation, creates the immutable matching tag, then publishes through npm Trusted Publisher OIDC with provenance. The same workflow can be started manually with one upstream version for a release retry.
 
-Every release is manually started in the **publish-npm** GitHub Actions workflow with both versions. CI verifies source signatures and hashes, builds and tests in isolation, creates the immutable tag, then publishes through npm Trusted Publisher OIDC with provenance. No local `npm publish` or tag creation is needed.
-
-The legacy npm/Git release `2.14.3` remains frozen at its original contents. Users on `^2.14.3` will not cross the package `3.0.0` major automatically.
+Wrapper or build improvements made after a FreeType version has been published stay on `main` until the next upstream release; an existing npm version or tag is never replaced with different bytes.
 
 - **Want the current npm release**: `npm install @zkl2333/freetype-wasm`.
-- **Want an immutable Git/jsdelivr release**: pin `v3.0.0` or its commit SHA.
+- **Want an immutable Git/jsdelivr release**: pin an upstream tag such as `v2.14.3` or its commit SHA.
 
 ## Repeatable build workflow
 

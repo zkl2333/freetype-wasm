@@ -57,8 +57,7 @@ async function main() {
   ok(ft.errorString(1).length > 0 && !ft.errorString(1).startsWith("Unknown error"),
      `errorString(1) = ${ft.errorString(1)}`);
   await runWorkerSmoke(ver.join("."));
-  // CI gate: the built library must match the independently recorded
-  // upstream FreeType version exactly.
+  // CI gate: the built library must match the package/tag upstream version.
   if (process.env.FT_VER) {
     ok(ver.join(".") === process.env.FT_VER, `built FreeType ${ver.join(".")} === FT_VER ${process.env.FT_VER}`);
   }

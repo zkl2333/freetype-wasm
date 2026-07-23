@@ -3,14 +3,12 @@ name: publish-npm
 on:
   workflow_dispatch:
     inputs:
-      package_version:
-        description: "npm package version, e.g. 3.0.0"
+      version:
+        description: "Upstream FreeType and npm version, e.g. 2.14.3"
         required: true
         type: string
-      freetype_version:
-        description: "Bundled upstream FreeType version, e.g. 2.14.3"
-        required: true
-        type: string
+  schedule:
+    - cron: "0 6 * * 1" # every Monday 06:00 UTC
 
 concurrency:
   group: freetype-release
@@ -28,48 +26,61 @@ jobs:
       contents: read
     outputs:
       build_release: ${{ steps.release.outputs.build_release }}
-      freetype_version: ${{ steps.release.outputs.freetype_version }}
       npm_exists: ${{ steps.release.outputs.npm_exists }}
-      package_version: ${{ steps.release.outputs.package_version }}
       run_release: ${{ steps.release.outputs.run_release }}
       source_sha: ${{ steps.release.outputs.source_sha }}
       tag: ${{ steps.release.outputs.tag }}
       tag_exists: ${{ steps.release.outputs.tag_exists }}
       tag_sha: ${{ steps.release.outputs.tag_sha }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: resolve release coordinates and immutable surfaces
+      - name: resolve upstream version and immutable release surfaces
         id: release
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          INPUT_FT_VER: ${{ inputs.freetype_version }}
-          INPUT_PKG_VER: ${{ inputs.package_version }}
+          INPUT_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
-            echo "manual releases must run from the default branch: $DEFAULT_BRANCH" >&2
-            exit 1
-          fi
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch)
+              if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+                echo "manual releases must run from the default branch: $DEFAULT_BRANCH" >&2
+                exit 1
+              fi
+              VERSION="${INPUT_VERSION#v}"
+              MODE="manual dispatch"
+              ;;
+            schedule)
+              VERSION="$(
+                curl -fsSL --retry 3 --retry-all-errors \
+                  https://download.savannah.gnu.org/releases/freetype/ \
+                  | grep -oE 'freetype-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz' \
+                  | sed -E 's/freetype-([0-9.]+)\.tar\.gz/\1/' \
+                  | sort -Vu \
+                  | tail -1
+              )"
+              MODE="weekly upstream check"
+              ;;
+            *)
+              echo "unsupported event: $GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
 
-          PKG_VER="${INPUT_PKG_VER#v}"
-          FT_VER="${INPUT_FT_VER#v}"
-          if ! printf '%s' "$PKG_VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "'$PKG_VER' is not a strict package X.Y.Z version" >&2
-            exit 1
-          fi
-          if ! printf '%s' "$FT_VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "'$FT_VER' is not a strict FreeType X.Y.Z version" >&2
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "'$VERSION' is not a strict FreeType X.Y.Z version" >&2
             exit 1
           fi
 
           SOURCE_SHA="$(git rev-parse "${GITHUB_SHA}^{commit}")"
-          TAG="v$PKG_VER"
+          TAG="v$VERSION"
           TAG_SHA="$(git rev-parse -q --verify "refs/tags/${TAG}^{commit}" 2>/dev/null || true)"
           if [ -n "$TAG_SHA" ]; then
             TAG_EXISTS=true
@@ -77,7 +88,7 @@ jobs:
             TAG_EXISTS=false
           fi
 
-          REGISTRY_URL="https://registry.npmjs.org/@zkl2333%2ffreetype-wasm/$PKG_VER"
+          REGISTRY_URL="https://registry.npmjs.org/@zkl2333%2ffreetype-wasm/$VERSION"
           HTTP_CODE="$(
             curl -sS --retry 3 --retry-all-errors \
               -o "$RUNNER_TEMP/npm-version.json" \
@@ -88,34 +99,23 @@ jobs:
             200) NPM_EXISTS=true ;;
             404) NPM_EXISTS=false ;;
             *)
-              echo "npm registry returned HTTP $HTTP_CODE while checking $PKG_VER" >&2
+              echo "npm registry returned HTTP $HTTP_CODE while checking $VERSION" >&2
               exit 1
               ;;
           esac
 
-          # A published npm version must retain its tag. Never recreate or
-          # move a tag after publication; repair must be explicit and audited.
           if [ "$NPM_EXISTS" = true ] && [ "$TAG_EXISTS" = false ]; then
-            echo "npm $PKG_VER exists but immutable Git tag $TAG is missing" >&2
+            echo "npm $VERSION exists but immutable Git tag $TAG is missing" >&2
             exit 1
           fi
 
           if [ "$TAG_EXISTS" = true ]; then
             TAG_MANIFEST="$RUNNER_TEMP/tag-package.json"
             git show "${TAG}:package.json" > "$TAG_MANIFEST"
-            TAG_PKG_VER="$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version || "")' "$TAG_MANIFEST")"
-            TAG_FT_VER="$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).freetypeVersion || "")' "$TAG_MANIFEST")"
-            if [ "$TAG_PKG_VER" != "$PKG_VER" ]; then
-              echo "$TAG package version is $TAG_PKG_VER, expected $PKG_VER" >&2
+            TAG_VERSION="$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version || "")' "$TAG_MANIFEST")"
+            if [ "$TAG_VERSION" != "$VERSION" ]; then
+              echo "$TAG package version is $TAG_VERSION, expected $VERSION" >&2
               exit 1
-            fi
-            if [ "$TAG_FT_VER" != "$FT_VER" ]; then
-              # The legacy 2.14.3 tag predates freetypeVersion; this one
-              # already-published release is the only permitted exception.
-              if ! { [ "$NPM_EXISTS" = true ] && [ "$PKG_VER" = "2.14.3" ] && [ "$FT_VER" = "2.14.3" ] && [ -z "$TAG_FT_VER" ]; }; then
-                echo "$TAG FreeType version is $TAG_FT_VER, expected $FT_VER" >&2
-                exit 1
-              fi
             fi
             if [ "$NPM_EXISTS" = true ]; then
               RUN_RELEASE=false
@@ -126,29 +126,22 @@ jobs:
               BUILD_RELEASE=false
             fi
           else
-            SOURCE_PKG_VER="$(node -p "JSON.parse(require('fs').readFileSync('package.json')).version")"
-            SOURCE_FT_VER="$(node -p "JSON.parse(require('fs').readFileSync('package.json')).freetypeVersion || ''")"
-            if [ "$SOURCE_PKG_VER" != "$PKG_VER" ] || [ "$SOURCE_FT_VER" != "$FT_VER" ]; then
-              echo "main package.json must declare version $PKG_VER and freetypeVersion $FT_VER" >&2
-              exit 1
-            fi
             RUN_RELEASE=true
             BUILD_RELEASE=true
           fi
 
           {
             echo "build_release=$BUILD_RELEASE"
-            echo "freetype_version=$FT_VER"
             echo "npm_exists=$NPM_EXISTS"
-            echo "package_version=$PKG_VER"
             echo "run_release=$RUN_RELEASE"
             echo "source_sha=$SOURCE_SHA"
             echo "tag=$TAG"
             echo "tag_exists=$TAG_EXISTS"
             echo "tag_sha=$TAG_SHA"
+            echo "version=$VERSION"
           } >> "$GITHUB_OUTPUT"
 
-          echo "package $PKG_VER; FreeType $FT_VER; tag exists=$TAG_EXISTS; npm exists=$NPM_EXISTS; build=$BUILD_RELEASE; publish=$RUN_RELEASE"
+          echo "$MODE: FreeType/npm $VERSION; tag exists=$TAG_EXISTS; npm exists=$NPM_EXISTS; build=$BUILD_RELEASE; publish=$RUN_RELEASE"
 
   build:
     needs: resolve
@@ -168,16 +161,21 @@ jobs:
 
       - name: build and verify isolated artifacts
         env:
-          FT_VER: ${{ needs.resolve.outputs.freetype_version }}
-          PKG_VER: ${{ needs.resolve.outputs.package_version }}
+          FT_VER: ${{ needs.resolve.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$(node -p "require('./package.json').version")" = "$PKG_VER"
-          test "$(node -p "require('./package.json').freetypeVersion")" = "$FT_VER"
+          node -e '
+            const fs = require("node:fs");
+            const file = "package.json";
+            const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+            pkg.version = process.env.FT_VER;
+            delete pkg.freetypeVersion;
+            fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+          '
           bash build.sh
           node test/test.mjs
-          PKG_VER="$PKG_VER" FT_VER="$FT_VER" npm run check:package
+          FT_VER="$FT_VER" npm run check:package
           npm pack --ignore-scripts --dry-run
 
       - name: upload verified dist
@@ -223,11 +221,10 @@ jobs:
         with:
           node-version: 24
 
-      - name: bake verified dist into the immutable package tag
+      - name: bake verified dist into the immutable upstream tag
         id: release
         env:
-          FT_VER: ${{ needs.resolve.outputs.freetype_version }}
-          PKG_VER: ${{ needs.resolve.outputs.package_version }}
+          FT_VER: ${{ needs.resolve.outputs.version }}
           PREBUILT_DIST: "1"
         shell: bash
         run: |
@@ -277,25 +274,23 @@ jobs:
 
       - name: validate immutable release package
         env:
-          FT_VER: ${{ needs.resolve.outputs.freetype_version }}
-          PKG_VER: ${{ needs.resolve.outputs.package_version }}
+          FT_VER: ${{ needs.resolve.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           test "$(node -p "require('./package.json').name")" = "@zkl2333/freetype-wasm"
-          test "$(node -p "require('./package.json').version")" = "$PKG_VER"
-          test "$(node -p "require('./package.json').freetypeVersion")" = "$FT_VER"
-          PKG_VER="$PKG_VER" FT_VER="$FT_VER" npm run check:package
+          test "$(node -p "require('./package.json').version")" = "$FT_VER"
+          FT_VER="$FT_VER" npm run check:package
           npm pack --ignore-scripts --dry-run
 
       - name: recheck immutable npm version
         id: registry
         env:
-          PKG_VER: ${{ needs.resolve.outputs.package_version }}
+          FT_VER: ${{ needs.resolve.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          REGISTRY_URL="https://registry.npmjs.org/@zkl2333%2ffreetype-wasm/$PKG_VER"
+          REGISTRY_URL="https://registry.npmjs.org/@zkl2333%2ffreetype-wasm/$FT_VER"
           HTTP_CODE="$(
             curl -sS --retry 3 --retry-all-errors \
               -o "$RUNNER_TEMP/npm-version.json" \
@@ -305,14 +300,14 @@ jobs:
           case "$HTTP_CODE" in
             200)
               echo "exists=true" >> "$GITHUB_OUTPUT"
-              echo "@zkl2333/freetype-wasm@$PKG_VER appeared while this run was active" >&2
+              echo "@zkl2333/freetype-wasm@$FT_VER appeared while this run was active" >&2
               exit 1
               ;;
             404)
               echo "exists=false" >> "$GITHUB_OUTPUT"
               ;;
             *)
-              echo "npm registry returned HTTP $HTTP_CODE while rechecking $PKG_VER" >&2
+              echo "npm registry returned HTTP $HTTP_CODE while rechecking $FT_VER" >&2
               exit 1
               ;;
           esac
