@@ -1,37 +1,51 @@
 #!/usr/bin/env bash
-# Build a specific upstream FreeType version, verify it, and bake dist/ +
-# the synced version number into the matching tag.
+# Build and verify one package release, then bake dist/ into its immutable tag.
 #
 # Model:
-#   - Tags map 1:1 to upstream FreeType (FT_VER=2.14.3 -> tag v2.14.3,
-#     package.json version 2.14.3). No -N revision tags.
-#   - vX.Y.Z is a ROLLING pointer to the latest build of that FreeType
-#     version (force-moved on every rebuild). Consumers who want a
-#     byte-stable pin use the build commit SHA printed below instead.
+#   - Package SemVer and the bundled FreeType version are independent.
+#   - vX.Y.Z is the immutable package release tag, never a rolling pointer.
 #   - main is never touched; dist only lives in the tag's build commit.
-#   - After force-moving the tag we purge jsdelivr, which otherwise caches
-#     @tag as immutable (~12 months) and would keep serving stale bytes.
 #
 # If build/verify fails, set -e aborts -> bad artifacts never reach a tag.
 #
-# Usage (inside CI container): FT_VER=2.14.3 bash scripts/finalize-tag.sh
+# Usage:
+#   build + bake: PKG_VER=3.0.0 FT_VER=2.14.3 bash scripts/finalize-tag.sh
+#   bake only: PKG_VER=3.0.0 FT_VER=2.14.3 PREBUILT_DIST=1 bash scripts/finalize-tag.sh
 set -euo pipefail
 
+: "${PKG_VER:?need PKG_VER, e.g. 3.0.0}"
 : "${FT_VER:?need FT_VER, e.g. 2.14.3}"
-TAG="v${FT_VER}"
+if ! [[ "$PKG_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "!! PKG_VER must be strict SemVer X.Y.Z: $PKG_VER" >&2
+  exit 1
+fi
+if ! [[ "$FT_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "!! FT_VER must be a strict X.Y.Z version: $FT_VER" >&2
+  exit 1
+fi
+TAG="v${PKG_VER}"
 
-echo ">>> finalize $TAG (FreeType $FT_VER)"
+echo ">>> finalize $TAG (package $PKG_VER, FreeType $FT_VER)"
 
-FT_VER="$FT_VER" bash build.sh
-FT_VER="$FT_VER" node test/test.mjs
+if [ "${PREBUILT_DIST:-0}" != "1" ]; then
+  FT_VER="$FT_VER" bash build.sh
+  FT_VER="$FT_VER" node test/test.mjs
+else
+  echo ">>> using prebuilt dist/ from the isolated build job"
+fi
 
-# Sync the version into package.json (kept equal to the tag / upstream).
-FT_VER="$FT_VER" node -e 'const f="package.json";const j=JSON.parse(require("fs").readFileSync(f));j.version=process.env.FT_VER;require("fs").writeFileSync(f,JSON.stringify(j,null,2)+"\n")'
-grep '"version"' package.json
+# Bake both independently versioned release coordinates into the manifest.
+PKG_VER="$PKG_VER" FT_VER="$FT_VER" node -e '
+  const fs = require("node:fs");
+  const file = "package.json";
+  const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+  pkg.version = process.env.PKG_VER;
+  pkg.freetypeVersion = process.env.FT_VER;
+  fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+'
+PKG_VER="$PKG_VER" FT_VER="$FT_VER" node scripts/check-package.mjs
+npm pack --ignore-scripts --dry-run
 
-# In the container the repo owner differs from the git user, otherwise:
-# fatal: not in a git directory.
-git config --global --add safe.directory "*"
 git config user.email "github-actions[bot]@users.noreply.github.com"
 git config user.name  "github-actions[bot]"
 
@@ -39,18 +53,6 @@ git config user.name  "github-actions[bot]"
 git add -f dist package.json
 git commit --allow-empty -m "build: ${TAG} artifacts (FreeType ${FT_VER})"
 SHA="$(git rev-parse HEAD)"
-git tag -f "${TAG}"
-git push -f origin "refs/tags/${TAG}"
-echo ">>> baked dist into ${TAG} @ ${SHA} (immutable pin) and pushed; main untouched"
-
-# Refresh jsdelivr's @tag cache (the SHA above stays immutable regardless).
-SLUG="$(git remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
-for f in index.mjs freetype.wasm freetype.mjs offsets.mjs struct-offsets.json index.d.ts \
-  licenses/FreeType-LICENSE.txt licenses/FreeType-FTL.txt \
-  licenses/Brotli-LICENSE.txt licenses/zlib-LICENSE.txt; do
-  if curl -fsS "https://purge.jsdelivr.net/gh/${SLUG}@${TAG}/dist/${f}" >/dev/null; then
-    echo ">>> purged jsdelivr ${TAG}/dist/${f}"
-  else
-    echo "!! jsdelivr purge skipped for ${f} (non-fatal; cache expires anyway)"
-  fi
-done
+git tag "${TAG}" "${SHA}"
+git push --force-with-lease="refs/tags/${TAG}:" origin "refs/tags/${TAG}"
+echo ">>> baked dist into immutable ${TAG} @ ${SHA}; main untouched"

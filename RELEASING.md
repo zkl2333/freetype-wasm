@@ -1,28 +1,65 @@
-# npm release setup
+# Release pipeline
 
-Releases are built and published only by GitHub Actions. Do not run `npm publish` from a developer machine.
+Releases are built and published only by GitHub Actions. Do not run `npm publish` locally, create release tags locally, or add an `NPM_TOKEN` secret.
 
-## One-time bootstrap
+## Trusted Publisher configuration
 
-Trusted publishing cannot create a package for its first release. Bootstrap the scoped package once:
+The npm package must have exactly this GitHub Actions trusted publisher:
 
-1. Confirm that the npm account `zkl2333` owns the `@zkl2333` scope.
-2. Create a short-lived granular npm access token that can publish packages in that scope. Enable publish access and bypass 2FA for this automation token.
-3. Add it to the GitHub repository as an Actions secret named `NPM_TOKEN`.
-4. Merge the release configuration, then manually run the `build-tag` workflow with `2.14.3`. It builds, tests, creates the immutable build commit, refreshes `v2.14.3`, and publishes `@zkl2333/freetype-wasm@2.14.3` with provenance.
+- npm package: `@zkl2333/freetype-wasm`
+- owner: `zkl2333`
+- repository: `freetype-wasm`
+- workflow filename: `publish-npm.yml`
+- environment: empty
+- allowed actions: `npm publish`
 
-## Switch to trusted publishing
+npm verifies the top-level workflow filename while exchanging the OIDC identity. Do not rename `.github/workflows/publish-npm.yml` or convert it to a reusable `workflow_call` without updating the npm settings.
 
-After the first npm version exists:
+The repository must allow the `finalize` job's explicit `contents: write` grant. Protect `v*` tags from deletion or updates after creation. The workflow itself creates tags with a create-only lease and never force-moves a release tag.
 
-1. Open the package settings on npm and add a GitHub Actions trusted publisher.
-2. Use organization/user `zkl2333`, repository `freetype-wasm`, and workflow file `publish-npm.yml`; allow the `npm publish` action.
-3. Remove the `NPM_TOKEN` GitHub secret so the next new version uses OIDC, then set npm publishing access to require 2FA while disallowing tokens. If the next publish reports a trust-configuration error, temporarily restore the bootstrap token while correcting the publisher settings.
+## Version policy
 
-The reusable publish workflow requests only `contents: read` and `id-token: write`. It installs a current npm CLI, validates the package, and publishes with npm provenance.
+Package SemVer and upstream FreeType versions are independent:
 
-## Subsequent releases
+- `package.json.version` is the npm version and immutable Git tag (`3.0.0` -> `v3.0.0`).
+- `package.json.freetypeVersion` is the FreeType source version compiled into the package.
+- Compatible wrapper/build fixes on the same FreeType version increment package patch.
+- A FreeType upgrade or compatible API addition normally increments package minor.
+- Breaking JS or TypeScript API changes increment package major.
 
-`track-upstream` checks for new FreeType releases every Monday and runs build, verification, tag creation, and npm publication automatically. `build-tag` provides the same path for a manual release or rebuild.
+Before a new release, update both manifest fields on `main` as needed and merge the change. Never reuse a package version. The legacy `2.14.3` release predates this split and remains immutable.
 
-npm versions are immutable. If `@zkl2333/freetype-wasm@X.Y.Z` already exists, the workflow skips npm publication while still refreshing the rolling Git tag and jsdelivr files.
+## Running a release
+
+Open **Actions -> publish-npm -> Run workflow**, select the default branch, and enter both `package_version` and `freetype_version`. For the first independent release, use package `3.0.0` and FreeType `2.14.3`.
+
+Equivalent GitHub CLI command:
+
+```bash
+gh workflow run publish-npm.yml \
+  --ref main \
+  -f package_version=3.0.0 \
+  -f freetype_version=2.14.3
+```
+
+The workflow accepts strict `X.Y.Z` values only. For a new tag, the two inputs must match the fields committed on `main`.
+
+## Permission and artifact boundaries
+
+The release has four isolated jobs:
+
+1. `resolve` has read-only repository access. It validates both versions, checks the immutable Git tag and npm registry, and decides whether this is a new build or a publish retry.
+2. `build` has read-only repository access and no persisted checkout credentials. It builds inside the digest-pinned Emscripten image, verifies source signatures and hashes, runs tests/package checks, and uploads only `dist/`.
+3. `finalize` alone has `contents: write`. For a new version it completely replaces `dist/` with the verified artifact, creates a build commit, and creates the immutable `vX.Y.Z` package tag. `main` is not changed.
+4. `publish` has read-only repository access plus `id-token: write`. It checks out the exact tagged commit, revalidates both versions and package contents, confirms the remote tag still points to that commit, rechecks npm immutability, and publishes with provenance through Trusted Publisher OIDC.
+
+The build and finalize jobs share only a run-scoped GitHub Actions artifact. The package checker rejects unexpected `dist/` files, symlinks, stale wrapper copies, invalid WASM, and version mismatches. Global release concurrency prevents two workflows from publishing at once.
+
+## Failure and retry behavior
+
+- A resolve, build, or test failure changes neither Git tags nor npm.
+- A finalize failure stops before npm publication.
+- If finalization creates the tag but npm publication fails, rerun the workflow with the same two versions. It validates and publishes the existing tag without rebuilding or moving it.
+- If both the tag and npm version already exist, the workflow is a successful no-op.
+- If npm exists without its immutable tag, the workflow fails closed for manual investigation.
+- npm versions and release tags are never overwritten. Publish a new package version for any changed artifact.

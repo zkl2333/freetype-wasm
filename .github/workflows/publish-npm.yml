@@ -1,68 +1,322 @@
 name: publish-npm
 
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
-      release_sha:
-        description: "Immutable build commit containing dist/"
+      package_version:
+        description: "npm package version, e.g. 3.0.0"
         required: true
         type: string
-      expected_version:
-        description: "FreeType/npm version expected in package.json"
+      freetype_version:
+        description: "Bundled upstream FreeType version, e.g. 2.14.3"
         required: true
         type: string
-    secrets:
-      NPM_TOKEN:
-        description: "Required for the first publish; optional after npm trusted publishing is configured"
-        required: false
 
+concurrency:
+  group: freetype-release
+  cancel-in-progress: false
+
+# npm verifies this top-level workflow filename for Trusted Publisher OIDC.
+# Keep it as publish-npm.yml and grant each job only its required permission.
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
+  resolve:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      build_release: ${{ steps.release.outputs.build_release }}
+      freetype_version: ${{ steps.release.outputs.freetype_version }}
+      npm_exists: ${{ steps.release.outputs.npm_exists }}
+      package_version: ${{ steps.release.outputs.package_version }}
+      run_release: ${{ steps.release.outputs.run_release }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      tag: ${{ steps.release.outputs.tag }}
+      tag_exists: ${{ steps.release.outputs.tag_exists }}
+      tag_sha: ${{ steps.release.outputs.tag_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - name: resolve release coordinates and immutable surfaces
+        id: release
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          INPUT_FT_VER: ${{ inputs.freetype_version }}
+          INPUT_PKG_VER: ${{ inputs.package_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "manual releases must run from the default branch: $DEFAULT_BRANCH" >&2
+            exit 1
+          fi
+
+          PKG_VER="${INPUT_PKG_VER#v}"
+          FT_VER="${INPUT_FT_VER#v}"
+          if ! printf '%s' "$PKG_VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "'$PKG_VER' is not a strict package X.Y.Z version" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$FT_VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "'$FT_VER' is not a strict FreeType X.Y.Z version" >&2
+            exit 1
+          fi
+
+          SOURCE_SHA="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          TAG="v$PKG_VER"
+          TAG_SHA="$(git rev-parse -q --verify "refs/tags/${TAG}^{commit}" 2>/dev/null || true)"
+          if [ -n "$TAG_SHA" ]; then
+            TAG_EXISTS=true
+          else
+            TAG_EXISTS=false
+          fi
+
+          REGISTRY_URL="https://registry.npmjs.org/@zkl2333%2ffreetype-wasm/$PKG_VER"
+          HTTP_CODE="$(
+            curl -sS --retry 3 --retry-all-errors \
+              -o "$RUNNER_TEMP/npm-version.json" \
+              -w '%{http_code}' \
+              "$REGISTRY_URL"
+          )"
+          case "$HTTP_CODE" in
+            200) NPM_EXISTS=true ;;
+            404) NPM_EXISTS=false ;;
+            *)
+              echo "npm registry returned HTTP $HTTP_CODE while checking $PKG_VER" >&2
+              exit 1
+              ;;
+          esac
+
+          # A published npm version must retain its tag. Never recreate or
+          # move a tag after publication; repair must be explicit and audited.
+          if [ "$NPM_EXISTS" = true ] && [ "$TAG_EXISTS" = false ]; then
+            echo "npm $PKG_VER exists but immutable Git tag $TAG is missing" >&2
+            exit 1
+          fi
+
+          if [ "$TAG_EXISTS" = true ]; then
+            TAG_MANIFEST="$RUNNER_TEMP/tag-package.json"
+            git show "${TAG}:package.json" > "$TAG_MANIFEST"
+            TAG_PKG_VER="$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version || "")' "$TAG_MANIFEST")"
+            TAG_FT_VER="$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).freetypeVersion || "")' "$TAG_MANIFEST")"
+            if [ "$TAG_PKG_VER" != "$PKG_VER" ]; then
+              echo "$TAG package version is $TAG_PKG_VER, expected $PKG_VER" >&2
+              exit 1
+            fi
+            if [ "$TAG_FT_VER" != "$FT_VER" ]; then
+              # The legacy 2.14.3 tag predates freetypeVersion; this one
+              # already-published release is the only permitted exception.
+              if ! { [ "$NPM_EXISTS" = true ] && [ "$PKG_VER" = "2.14.3" ] && [ "$FT_VER" = "2.14.3" ] && [ -z "$TAG_FT_VER" ]; }; then
+                echo "$TAG FreeType version is $TAG_FT_VER, expected $FT_VER" >&2
+                exit 1
+              fi
+            fi
+            if [ "$NPM_EXISTS" = true ]; then
+              RUN_RELEASE=false
+              BUILD_RELEASE=false
+            else
+              # npm failed after finalization: publish the existing tag as-is.
+              RUN_RELEASE=true
+              BUILD_RELEASE=false
+            fi
+          else
+            SOURCE_PKG_VER="$(node -p "JSON.parse(require('fs').readFileSync('package.json')).version")"
+            SOURCE_FT_VER="$(node -p "JSON.parse(require('fs').readFileSync('package.json')).freetypeVersion || ''")"
+            if [ "$SOURCE_PKG_VER" != "$PKG_VER" ] || [ "$SOURCE_FT_VER" != "$FT_VER" ]; then
+              echo "main package.json must declare version $PKG_VER and freetypeVersion $FT_VER" >&2
+              exit 1
+            fi
+            RUN_RELEASE=true
+            BUILD_RELEASE=true
+          fi
+
+          {
+            echo "build_release=$BUILD_RELEASE"
+            echo "freetype_version=$FT_VER"
+            echo "npm_exists=$NPM_EXISTS"
+            echo "package_version=$PKG_VER"
+            echo "run_release=$RUN_RELEASE"
+            echo "source_sha=$SOURCE_SHA"
+            echo "tag=$TAG"
+            echo "tag_exists=$TAG_EXISTS"
+            echo "tag_sha=$TAG_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "package $PKG_VER; FreeType $FT_VER; tag exists=$TAG_EXISTS; npm exists=$NPM_EXISTS; build=$BUILD_RELEASE; publish=$RUN_RELEASE"
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.build_release == 'true'
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk:3.1.74@sha256:af45409f3199d88db4b1b03af0098532c8fb33a375ac257463eeb0a622870d06
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: install build and signature tools
+        run: apt-get update && apt-get install -y --no-install-recommends cmake git gnupg gpgv
+
+      - name: build and verify isolated artifacts
+        env:
+          FT_VER: ${{ needs.resolve.outputs.freetype_version }}
+          PKG_VER: ${{ needs.resolve.outputs.package_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "$PKG_VER"
+          test "$(node -p "require('./package.json').freetypeVersion")" = "$FT_VER"
+          bash build.sh
+          node test/test.mjs
+          PKG_VER="$PKG_VER" FT_VER="$FT_VER" npm run check:package
+          npm pack --ignore-scripts --dry-run
+
+      - name: upload verified dist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: freetype-wasm-dist-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  finalize:
+    needs:
+      - resolve
+      - build
+    if: >-
+      needs.resolve.outputs.build_release == 'true' &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          fetch-depth: 0
+
+      - name: download verified dist
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: freetype-wasm-dist-${{ github.run_id }}
+          path: ${{ runner.temp }}/verified-dist
+
+      - name: replace dist with only the verified artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf -- dist
+          mv "$RUNNER_TEMP/verified-dist" dist
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+
+      - name: bake verified dist into the immutable package tag
+        id: release
+        env:
+          FT_VER: ${{ needs.resolve.outputs.freetype_version }}
+          PKG_VER: ${{ needs.resolve.outputs.package_version }}
+          PREBUILT_DIST: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/finalize-tag.sh
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs:
+      - resolve
+      - build
+      - finalize
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.resolve.result == 'success' &&
+      needs.resolve.outputs.run_release == 'true' &&
+      needs.resolve.outputs.npm_exists == 'false' &&
+      (needs.resolve.outputs.tag_exists == 'true' || needs.finalize.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.resolve.outputs.tag_exists == 'true' && needs.resolve.outputs.tag_sha || needs.finalize.outputs.release_sha }}
+          persist-credentials: false
+
+      - name: confirm the immutable remote tag still matches
+        env:
+          EXPECTED_RELEASE_SHA: ${{ needs.resolve.outputs.tag_exists == 'true' && needs.resolve.outputs.tag_sha || needs.finalize.outputs.release_sha }}
+          EXPECTED_TAG: ${{ needs.resolve.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_RELEASE_SHA"
+          REMOTE_TAG_SHA="$(git ls-remote --refs origin "refs/tags/$EXPECTED_TAG" | awk 'NR == 1 { print $1 }')"
+          test "$REMOTE_TAG_SHA" = "$EXPECTED_RELEASE_SHA"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
 
       - name: use an npm CLI with trusted publishing support
-        run: npm install --global npm@11.6.2
+        run: npm install --global --ignore-scripts npm@11.6.2
 
-      - name: validate release package
+      - name: validate immutable release package
         env:
-          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          FT_VER: ${{ needs.resolve.outputs.freetype_version }}
+          PKG_VER: ${{ needs.resolve.outputs.package_version }}
+        shell: bash
         run: |
+          set -euo pipefail
           test "$(node -p "require('./package.json').name")" = "@zkl2333/freetype-wasm"
-          test "$(node -p "require('./package.json').version")" = "$EXPECTED_VERSION"
-          npm run check:package
-          npm pack --dry-run
+          test "$(node -p "require('./package.json').version")" = "$PKG_VER"
+          test "$(node -p "require('./package.json').freetypeVersion")" = "$FT_VER"
+          PKG_VER="$PKG_VER" FT_VER="$FT_VER" npm run check:package
+          npm pack --ignore-scripts --dry-run
 
-      - name: check whether this immutable npm version already exists
+      - name: recheck immutable npm version
         id: registry
         env:
-          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          PKG_VER: ${{ needs.resolve.outputs.package_version }}
+        shell: bash
         run: |
-          if npm view "@zkl2333/freetype-wasm@$EXPECTED_VERSION" version >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "@zkl2333/freetype-wasm@$EXPECTED_VERSION already exists; npm publish is skipped"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          REGISTRY_URL="https://registry.npmjs.org/@zkl2333%2ffreetype-wasm/$PKG_VER"
+          HTTP_CODE="$(
+            curl -sS --retry 3 --retry-all-errors \
+              -o "$RUNNER_TEMP/npm-version.json" \
+              -w '%{http_code}' \
+              "$REGISTRY_URL"
+          )"
+          case "$HTTP_CODE" in
+            200)
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "@zkl2333/freetype-wasm@$PKG_VER appeared while this run was active" >&2
+              exit 1
+              ;;
+            404)
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "npm registry returned HTTP $HTTP_CODE while rechecking $PKG_VER" >&2
+              exit 1
+              ;;
+          esac
 
-      - name: publish to npm with provenance
-        if: steps.registry.outputs.exists != 'true'
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            unset NODE_AUTH_TOKEN
-          fi
-          npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: publish with npm Trusted Publisher OIDC
+        if: steps.registry.outputs.exists == 'false'
+        run: npm publish --ignore-scripts --access public --provenance

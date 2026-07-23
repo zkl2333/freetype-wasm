@@ -1,6 +1,6 @@
 # freetype-wasm（中文）
 
-通用 [FreeType](https://freetype.org/) WebAssembly 版：内存可增长（能加载数 MB 的 CJK 字体）、暴露**完整 FreeType 公共 C API**、Node 与浏览器通用、版本号对齐上游 FreeType。
+通用 [FreeType](https://freetype.org/) WebAssembly 版：内存可增长（能加载数 MB 的 CJK 字体）、暴露**完整 FreeType 公共 C API**，可用于 Node、浏览器与 Module Worker。
 
 [English → README.md](./README.md)
 
@@ -17,8 +17,8 @@ OOM 是构建配置问题，不是 FreeType 的缺陷。也没有别的库满足
 - **`ALLOW_MEMORY_GROWTH=1`**：数 MB CJK 字体不再 OOM。
 - 暴露**完整 FreeType 公共 C API**：从头文件抽取所有 `FT_EXPORT` 并与实际库符号取交集（而非手挑子集），外加 Emscripten 运行时助手与 wasm32 结构体偏移，可调用任意 FreeType 函数。
 - 薄 JS 包装（`FreeType` / `Face`）覆盖常见路径；MONO 或抗锯齿由调用方通过 load flags 指定。
-- Node 与浏览器（`ENVIRONMENT=node,web`）。
-- 构建可复现；发布 tag 对齐上游 FreeType 版本。
+- Node、浏览器与 Module Web Worker（`ENVIRONMENT=node,web,worker`）。
+- 钉死 Emscripten 镜像，并对原生依赖做签名/哈希验证；发布 tag 仅在 CI 完整验证后创建且不可变。
 
 ## 安装
 
@@ -32,14 +32,14 @@ npm install @zkl2333/freetype-wasm
 import initFreeType, { FT } from "@zkl2333/freetype-wasm";
 ```
 
-CI 也会在每个发布 tag 构建并把 `dist/`（wasm + glue + wrapper）提交进去。tag 与上游 FreeType 1:1，`<tag>` 就是 `v` + FreeType 版本，如 `v2.14.3`。其他分发方式：
+CI 会把 `dist/`（wasm + glue + wrapper）提交到每个不可变的包发布 tag。`<tag>` 是 `v` + npm 包版本，例如 `v3.0.0`。其他分发方式：
 
 - **npm 装 GitHub**：`npm i github:zkl2333/freetype-wasm#<tag>`
 - **git**：`git clone --branch <tag>` 用 `dist/`，或 `git archive`
 - **jsdelivr**（可选；浏览器/Deno，ESM，免打包）：
   `import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
 
-可用 tag 见 [tags 页](../../tags)。上游 FreeType 新版由定时任务自动构建+验证+打 tag。
+可用 tag 见 [tags 页](../../tags)，每个 tag 都包含与 npm 发布完全一致的文件。
 
 ## 快速开始
 
@@ -51,7 +51,7 @@ const ft = await initFreeType();
 // Node：const ft = await initFreeType({ wasmBinary: fs.readFileSync("dist/freetype.wasm") });
 
 const face = ft.newFace(fontBytes); // Uint8Array — TTF/OTF/TTC/WOFF/WOFF2/Type1/CFF
-face.setPixelSize(48);
+face.setPixelSize(48); // 高度 48px；可选第二参数为宽度
 
 // 灰度抗锯齿（默认）
 const aa = face.loadGlyph({ char: "字".codePointAt(0) });
@@ -64,15 +64,28 @@ const mono = face.loadGlyph({
   renderMode: FT.RENDER_MODE_MONO,
 }); // pixelMode: 1，buffer 按 |pitch| 行打包 1bpp，MSB 先
 
+// bitmap-only 的 sbix/CBDT 字体需选择固定 strike，返回 BGRA 像素
+const colorFace = ft.newFace(colorFontBytes);
+colorFace.selectSize(0);
+const color = colorFace.loadGlyph({ char: 0x1f603, flags: FT.LOAD_COLOR });
+colorFace.destroy();
+
+const metrics = face.sizeMetrics();
+for (const { codepoint, glyphIndex } of face.characters()) {
+  // 可用于生成字体覆盖表或 atlas；拿够数据后随时 break
+}
+
 face.destroy();
 ft.destroy();
 ```
+
+同一套 import 可直接用于 Module Worker（`new Worker(url, { type: "module" })`）。每个 Worker 持有独立的 FreeType 实例和 WASM 内存；若 `.wasm` 放在其他地址，可向 `initFreeType` 传 `locateFile` 或 `wasmBinary`。
 
 ## API
 
 两层：
 
-1. **便捷层** —— `FreeType` / `Face`（见 [`src/index.d.ts`](./src/index.d.ts)）：`newFace`、`setPixelSize`/`setCharSize`、`loadGlyph`、`charIndex`、`selectCharmap`、`kerning`、`info`、`version`。
+1. **便捷层** —— `FreeType` / `Face`（见 [`src/index.d.ts`](./src/index.d.ts)）：`newFace`、`setPixelSize`/`setPixelSizes`/`setCharSize`/`selectSize`、`loadGlyph`、`charIndex`、`characters`、`selectCharmap`、`kerning`、`info`、`sizeMetrics`、`version`、`errorString`。
 2. **原生层** —— `ft.module` 是完整 Emscripten 模块（`ccall`/`cwrap`/`getValue`/`setValue`/`HEAPU8`/`_malloc`/`_free`/`addFunction`）。配 `ft.offsets`（wasm32 结构体字段偏移）可达便捷层未包的**任意** FreeType 函数：
 
 ```js
@@ -81,27 +94,28 @@ const fn = m.cwrap("FT_Some_Function", "number", ["number", "number"]);
 const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 ```
 
+便捷层创建的句柄不要从原生层修改引用计数（`FT_Reference_Face` / `FT_Reference_Library`）或调用原生 `FT_Done_*`，请使用 `face.destroy()` / `ft.destroy()`；使用这些句柄的 raw 调用必须先于 wrapper 销毁结束。需要自定义原生生命周期时，请完全通过 raw API 创建和管理对应 face。
+
 ## 支持的格式 / 限制
 
-**支持**：TrueType（TTF/TTC）、OpenType/CFF（OTF）、WOFF、**WOFF2**（已编入 Brotli）、Type1、CFF，以及 FreeType 完整 glyph/outline/bitmap/MONO/AA/kerning/charmap API。
+**支持**：TrueType（TTF/TTC）、OpenType/CFF（OTF）、WOFF、**WOFF2**（Brotli）、bzip2 压缩字体、内嵌 PNG 彩色位图（`sbix`/`CBDT`）、Type1、CFF，以及 FreeType 的 glyph/outline/bitmap/MONO/AA/LCD/SDF/kerning/charmap API。
 
-**未启用**（冷门、需额外外部依赖，有需要提 issue）：bzip2 压缩 PCF、彩色位图字体内嵌 PNG（`sbix`/`CBDT`）、FreeType 内部 HarfBuzz autohint。结构体偏移只内置渲染常用项（`struct-offsets.json` / `offsets.mjs`），其余可同法自行扩展。
+**限制**：未启用 FreeType 内部 HarfBuzz autohint 辅助（文本 shaping 本就不属于 FreeType）；OT-SVG 需要应用自行提供 SVG renderer；Emscripten 文件系统已关闭，请使用 `newFace(bytes)` 而非路径 API。结构体偏移只内置渲染常用项（`struct-offsets.json` / `offsets.mjs`），其余可同法自行扩展。
 
 ## 版本号
 
-tag 和 npm 版本均与上游 FreeType 严格 **1:1**。`vX.Y.Z` 与 npm `X.Y.Z` 都由 FreeType X.Y.Z 构建。
+npm 包 SemVer 与内置 FreeType 版本独立管理：`package.json.version` 是 npm/Git 发布版本，`package.json.freetypeVersion` 记录上游库版本。例如包 `3.0.0` 内置 FreeType `2.14.3`。
 
-`vX.Y.Z` 是**该 FreeType 版本“当前最优构建”的滚动指针**，不是冻结产物。定时任务监视上游、新版自动打 tag（构建+验证为门）。打包脚本/wrapper 改进但 FreeType 没升级时，原地强制重建同一个 `vX.Y.Z`（无 `-N`/合成版本号），并自动 purge jsdelivr 的 tag 缓存，消费方很快就能拿到新构建。
+npm 版本和 `vX.Y.Z` Git tag 都不可变，并统一使用包版本。同一 FreeType 下兼容的 wrapper/构建修复递增包 patch；升级 FreeType 或兼容新增 API 通常递增 minor；JS 或 TypeScript API 有破坏性变化时递增 major。
 
-npm 版本不可覆盖：`X.Y.Z` 首次成功发布后保持不变；同一 FreeType 版本重建时，CI 会安全跳过 npm，但仍更新 Git tag 和 jsdelivr。上游出现新版本后，CI 会自动发布带 provenance 的新 npm 版本。
+每次发布都在 GitHub Actions 的 **publish-npm** workflow 中手动输入两个版本。CI 会验签/验哈希、隔离构建、跑测试、创建不可变 tag，再通过 npm Trusted Publisher OIDC 携 provenance 发布；本地不执行 `npm publish`，也不手动打 tag。
 
-- **要某 FreeType 版本的最新好构建** → 钉 tag：`@v2.14.3`。
-- **要不可变的 npm 版本** → 安装 `@zkl2333/freetype-wasm@2.14.3`。
-- **要字节级永不变的产物**（可复现） → 钉**构建提交 SHA**，而非 tag。jsdelivr 和 `npm i github:…#<sha>` 都吃 SHA，SHA 天然不可变。每次构建的 SHA 打在该次 `build-tag` CI 日志里。
+旧 npm/Git 版本 `2.14.3` 会冻结在最初发布内容；使用 `^2.14.3` 的项目不会自动跨到包 `3.0.0`。
 
-重发同一 FreeType 版本的新构建：手动跑 **build-tag** workflow（Actions → build-tag → Run workflow → 填版本号），无需本地打 tag。
+- **要当前 npm 版本**：`npm install @zkl2333/freetype-wasm`。
+- **要不可变的 Git/jsdelivr 版本**：钉 `v3.0.0` 或对应 commit SHA。
 
-## 可复现构建
+## 可重复构建流程
 
 本机无需工具链：
 
@@ -111,11 +125,11 @@ docker run --rm -v "$PWD/dist:/src/dist" freetype-wasm
 node test/test.mjs
 ```
 
-钉死 `emscripten/emsdk:3.1.74`；FreeType 取自 GNU Savannah，Brotli 取自 google/brotli release（`FT_VER` / `BROTLI_VER` 可覆盖）。CI 用同一镜像，产物字节可复现。
+amd64 的 Emscripten 3.1.74 镜像按 digest 钉死。FreeType 发布归档在解压前用仓库内置的官方发布公钥验签；zlib、libpng、bzip2、Brotli 归档按 SHA-256 校验；CI 使用同一基础镜像。实时 apt 包与 CMake 尚未完全钉死，因此这里承诺的是经过验证的可重复构建流程，不宣称不同时间构建必然逐字节一致。
 
 ## 许可
 
 - 本仓库构建脚本与 JS 包装：**MIT**（见 [LICENSE](./LICENSE)）。
-- 发布的 `.wasm` 内嵌 FreeType、Brotli 与 zlib，每个发布包的 `dist/licenses/` 都带有对应许可文本。FreeType 采用 FreeType License（FTL）分发；按 FTL，使用产物需署名致谢 FreeType：
+- 发布的 `.wasm` 内嵌 FreeType、Brotli、bzip2、libpng、zlib、musl、compiler-rt 及 Emscripten 运行时代码，每个发布包的 `dist/licenses/` 都带有对应许可/声明。FreeType 采用 FreeType License（FTL）分发；按 FTL，使用产物需署名致谢 FreeType：
 
   > Portions of this software are copyright © The FreeType Project (www.freetype.org). All rights reserved.
