@@ -37,7 +37,7 @@ git config user.name  "github-actions[bot]"
 
 # dist/ is gitignored; -f forces it into a build commit referenced only by this tag.
 git add -f dist package.json
-git commit -m "build: ${TAG} artifacts (FreeType ${FT_VER})"
+git commit --allow-empty -m "build: ${TAG} artifacts (FreeType ${FT_VER})"
 SHA="$(git rev-parse HEAD)"
 git tag -f "${TAG}"
 git push -f origin "refs/tags/${TAG}"
@@ -45,7 +45,9 @@ echo ">>> baked dist into ${TAG} @ ${SHA} (immutable pin) and pushed; main untou
 
 # Refresh jsdelivr's @tag cache (the SHA above stays immutable regardless).
 SLUG="$(git remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
-for f in index.mjs freetype.wasm freetype.mjs offsets.mjs struct-offsets.json index.d.ts; do
+for f in index.mjs freetype.wasm freetype.mjs offsets.mjs struct-offsets.json index.d.ts \
+  licenses/FreeType-LICENSE.txt licenses/FreeType-FTL.txt \
+  licenses/Brotli-LICENSE.txt licenses/zlib-LICENSE.txt; do
   if curl -fsS "https://purge.jsdelivr.net/gh/${SLUG}@${TAG}/dist/${f}" >/dev/null; then
     echo ">>> purged jsdelivr ${TAG}/dist/${f}"
   else

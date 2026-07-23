@@ -21,6 +21,9 @@ jobs:
       - name: 验证（大 CJK 不 OOM + MONO + 灰度 AA + metrics/kerning）
         run: node test/test.mjs
 
+      - name: 验证 npm 包内容
+        run: npm run check:package && npm pack --dry-run
+
       - name: 上传产物
         if: always()
         uses: actions/upload-artifact@v4

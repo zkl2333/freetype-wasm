@@ -97,6 +97,13 @@ node "$WORK/gen-offsets.cjs" > "$OUT_DIR/struct-offsets.json"
 printf 'export default %s;\n' "$(cat "$OUT_DIR/struct-offsets.json")" > "$OUT_DIR/offsets.mjs"
 echo ">>> struct-offsets.json:" && head -c 120 "$OUT_DIR/struct-offsets.json" && echo
 
+# Ship the notices required by the native projects compiled into the WASM.
+mkdir -p "$OUT_DIR/licenses"
+cp "$FT_SRC/LICENSE.TXT" "$OUT_DIR/licenses/FreeType-LICENSE.txt"
+cp "$FT_SRC/docs/FTL.TXT" "$OUT_DIR/licenses/FreeType-FTL.txt"
+cp "$WORK/brotli-${BROTLI_VER}/LICENSE" "$OUT_DIR/licenses/Brotli-LICENSE.txt"
+sed -n '1,/^\*\//p' "$FT_SRC/src/gzip/zlib.h" > "$OUT_DIR/licenses/zlib-LICENSE.txt"
+
 # 4) 链接成通用 WASM 模块
 echo ">>> 链接 → freetype.mjs / freetype.wasm"
 RUNTIME_METHODS='ccall,cwrap,getValue,setValue,UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,HEAPU8,HEAP8,HEAP16,HEAP32,HEAPU16,HEAPU32,HEAPF32'

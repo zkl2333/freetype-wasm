@@ -4,7 +4,7 @@ A general-purpose WebAssembly build of [FreeType](https://freetype.org/): memory
 
 [中文说明 → README.zh-CN.md](./README.zh-CN.md)
 
-> Not on npm yet (package planned). For now, install from git tags via `npm i github:` (or jsdelivr), or build it yourself with Docker.
+Published on npm as [`@zkl2333/freetype-wasm`](https://www.npmjs.com/package/@zkl2333/freetype-wasm). Git tags and jsdelivr remain available for version-pinned or no-bundler use.
 
 ## Why this exists
 
@@ -22,10 +22,19 @@ What this build provides:
 
 ## Install
 
-Distribution is the git tags (npm package planned but not yet published; no GitHub Releases): CI builds on every tag and commits the `dist/` (wasm + glue + wrapper) into it, so the tag is consumable directly. Tags map 1:1 to upstream FreeType, so `<tag>` is just `v` + the FreeType version, e.g. `v2.14.3`:
+From npm:
 
-- **npm from GitHub** (Node bundlers):
-  `npm i github:zkl2333/freetype-wasm#<tag>` → `import initFreeType, { FT } from "freetype-wasm"`
+```bash
+npm install @zkl2333/freetype-wasm
+```
+
+```js
+import initFreeType, { FT } from "@zkl2333/freetype-wasm";
+```
+
+CI also builds every release tag and commits `dist/` (wasm + glue + wrapper) into it. Tags map 1:1 to upstream FreeType, so `<tag>` is `v` + the FreeType version, e.g. `v2.14.3`. Alternative distribution routes:
+
+- **npm from GitHub**: `npm i github:zkl2333/freetype-wasm#<tag>`
 - **git**: `git clone --branch <tag>` and use `dist/`, or `git archive`.
 - **jsdelivr** (optional — browser/Deno, ESM, no bundler):
   `import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
@@ -35,7 +44,7 @@ Available tags: see the [tags page](../../tags). New upstream FreeType releases 
 ## Quick start
 
 ```js
-import initFreeType, { FT } from "./dist/index.mjs"; // or the package / jsdelivr URL above
+import initFreeType, { FT } from "@zkl2333/freetype-wasm"; // or the jsdelivr URL above
 
 // Browser: the .wasm is fetched from the same directory automatically.
 const ft = await initFreeType();
@@ -80,11 +89,14 @@ const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 
 ## Versioning
 
-Tags map **1:1 to upstream FreeType** (no tag exists that upstream doesn't). `vX.Y.Z` is built from FreeType X.Y.Z (`package.json` `version` stamped to `X.Y.Z`).
+Tags and npm versions map **1:1 to upstream FreeType**. `vX.Y.Z` and npm version `X.Y.Z` are built from FreeType X.Y.Z.
 
 `vX.Y.Z` is a **rolling pointer to the latest good build of that FreeType version**, not a frozen artifact. A scheduled CI job watches upstream and auto-tags new releases (build + verify gated). If the build scripts/wrapper improve without a FreeType bump, the same `vX.Y.Z` is rebuilt in place (force-moved, no `-N`/synthetic versions) and jsdelivr's tag cache is purged automatically so consumers see the new build promptly.
 
+npm versions are immutable. The first successful `X.Y.Z` publish is retained; rebuilding the same FreeType version safely skips npm while still refreshing the Git tag and jsdelivr. New upstream versions are published automatically with npm provenance.
+
 - **Want the newest good build of a FreeType version** → pin the tag: `@v2.14.3`.
+- **Want the immutable npm release** → install `@zkl2333/freetype-wasm@2.14.3`.
 - **Want a byte-stable, never-changing artifact** (reproducibility) → pin the **build commit SHA** instead of the tag. jsdelivr and `npm i github:…#<sha>` both accept a commit SHA, and a SHA is immutable by definition. Each build's SHA is printed in its `build-tag` CI log.
 
 To re-release a new build of the same FreeType version: run the **build-tag** workflow manually (Actions → build-tag → Run workflow → enter the version). No local tagging needed.
@@ -104,6 +116,6 @@ Pinned to `emscripten/emsdk:3.1.74`; FreeType from GNU Savannah, Brotli from the
 ## License
 
 - This repository's build scripts and JS wrapper: **MIT** (see [LICENSE](./LICENSE)).
-- Released `.wasm` embeds FreeType and Brotli. FreeType is under the FreeType License (FTL) / GPLv2; Brotli is MIT. Per the FTL, using the artifact requires crediting FreeType:
+- Released `.wasm` embeds FreeType, Brotli, and zlib. Their license texts are included under `dist/licenses/` in every release. FreeType is distributed under the FreeType License (FTL); per the FTL, using the artifact requires crediting FreeType:
 
   > Portions of this software are copyright © The FreeType Project (www.freetype.org). All rights reserved.

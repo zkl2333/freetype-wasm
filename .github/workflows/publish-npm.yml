@@ -1,0 +1,68 @@
+name: publish-npm
+
+on:
+  workflow_call:
+    inputs:
+      release_sha:
+        description: "Immutable build commit containing dist/"
+        required: true
+        type: string
+      expected_version:
+        description: "FreeType/npm version expected in package.json"
+        required: true
+        type: string
+    secrets:
+      NPM_TOKEN:
+        description: "Required for the first publish; optional after npm trusted publishing is configured"
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: use an npm CLI with trusted publishing support
+        run: npm install --global npm@11.6.2
+
+      - name: validate release package
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          test "$(node -p "require('./package.json').name")" = "@zkl2333/freetype-wasm"
+          test "$(node -p "require('./package.json').version")" = "$EXPECTED_VERSION"
+          npm run check:package
+          npm pack --dry-run
+
+      - name: check whether this immutable npm version already exists
+        id: registry
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          if npm view "@zkl2333/freetype-wasm@$EXPECTED_VERSION" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "@zkl2333/freetype-wasm@$EXPECTED_VERSION already exists; npm publish is skipped"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: publish to npm with provenance
+        if: steps.registry.outputs.exists != 'true'
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            unset NODE_AUTH_TOKEN
+          fi
+          npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

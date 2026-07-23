@@ -4,7 +4,7 @@
 
 [English → README.md](./README.md)
 
-> npm 包计划中、暂未发布。当前从 git tag 安装：`npm i github:`（或 jsdelivr），或自己用 Docker 构建。
+已发布为 npm 包 [`@zkl2333/freetype-wasm`](https://www.npmjs.com/package/@zkl2333/freetype-wasm)。也可通过 git tag 或 jsdelivr 使用固定版本。
 
 ## 为什么有这个
 
@@ -22,10 +22,19 @@ OOM 是构建配置问题，不是 FreeType 的缺陷。也没有别的库满足
 
 ## 安装
 
-分发就是 git tag（npm 包计划中、暂未发布；不用 GitHub Release）：CI 在每个 tag 构建并把 `dist/`（wasm+glue+wrapper）提交进去，直接可消费。tag 与上游 FreeType 1:1，`<tag>` 就是 `v` + FreeType 版本，如 `v2.14.3`：
+从 npm 安装：
 
-- **npm 装 GitHub**（Node 打包器）：
-  `npm i github:zkl2333/freetype-wasm#<tag>` → `import initFreeType, { FT } from "freetype-wasm"`
+```bash
+npm install @zkl2333/freetype-wasm
+```
+
+```js
+import initFreeType, { FT } from "@zkl2333/freetype-wasm";
+```
+
+CI 也会在每个发布 tag 构建并把 `dist/`（wasm + glue + wrapper）提交进去。tag 与上游 FreeType 1:1，`<tag>` 就是 `v` + FreeType 版本，如 `v2.14.3`。其他分发方式：
+
+- **npm 装 GitHub**：`npm i github:zkl2333/freetype-wasm#<tag>`
 - **git**：`git clone --branch <tag>` 用 `dist/`，或 `git archive`
 - **jsdelivr**（可选；浏览器/Deno，ESM，免打包）：
   `import initFreeType, { FT } from "https://cdn.jsdelivr.net/gh/zkl2333/freetype-wasm@<tag>/dist/index.mjs"`
@@ -35,7 +44,7 @@ OOM 是构建配置问题，不是 FreeType 的缺陷。也没有别的库满足
 ## 快速开始
 
 ```js
-import initFreeType, { FT } from "./dist/index.mjs"; // 或上方的包名 / jsdelivr URL
+import initFreeType, { FT } from "@zkl2333/freetype-wasm"; // 或上方的 jsdelivr URL
 
 // 浏览器：.wasm 自动从同目录 fetch
 const ft = await initFreeType();
@@ -80,11 +89,14 @@ const numGlyphs = m.getValue(facePtr + ft.offsets.FT_FaceRec.num_glyphs, "i32");
 
 ## 版本号
 
-tag 与上游 FreeType 严格 **1:1**（没有上游不存在的 tag）。`vX.Y.Z` 由 FreeType X.Y.Z 构建（`package.json` `version` 由 CI 盖成 `X.Y.Z`）。
+tag 和 npm 版本均与上游 FreeType 严格 **1:1**。`vX.Y.Z` 与 npm `X.Y.Z` 都由 FreeType X.Y.Z 构建。
 
 `vX.Y.Z` 是**该 FreeType 版本“当前最优构建”的滚动指针**，不是冻结产物。定时任务监视上游、新版自动打 tag（构建+验证为门）。打包脚本/wrapper 改进但 FreeType 没升级时，原地强制重建同一个 `vX.Y.Z`（无 `-N`/合成版本号），并自动 purge jsdelivr 的 tag 缓存，消费方很快就能拿到新构建。
 
+npm 版本不可覆盖：`X.Y.Z` 首次成功发布后保持不变；同一 FreeType 版本重建时，CI 会安全跳过 npm，但仍更新 Git tag 和 jsdelivr。上游出现新版本后，CI 会自动发布带 provenance 的新 npm 版本。
+
 - **要某 FreeType 版本的最新好构建** → 钉 tag：`@v2.14.3`。
+- **要不可变的 npm 版本** → 安装 `@zkl2333/freetype-wasm@2.14.3`。
 - **要字节级永不变的产物**（可复现） → 钉**构建提交 SHA**，而非 tag。jsdelivr 和 `npm i github:…#<sha>` 都吃 SHA，SHA 天然不可变。每次构建的 SHA 打在该次 `build-tag` CI 日志里。
 
 重发同一 FreeType 版本的新构建：手动跑 **build-tag** workflow（Actions → build-tag → Run workflow → 填版本号），无需本地打 tag。
@@ -104,6 +116,6 @@ node test/test.mjs
 ## 许可
 
 - 本仓库构建脚本与 JS 包装：**MIT**（见 [LICENSE](./LICENSE)）。
-- 发布的 `.wasm` 内嵌 FreeType 与 Brotli。FreeType 受 FreeType License (FTL) / GPLv2 约束，Brotli 为 MIT。按 FTL，使用产物需署名致谢 FreeType：
+- 发布的 `.wasm` 内嵌 FreeType、Brotli 与 zlib，每个发布包的 `dist/licenses/` 都带有对应许可文本。FreeType 采用 FreeType License（FTL）分发；按 FTL，使用产物需署名致谢 FreeType：
 
   > Portions of this software are copyright © The FreeType Project (www.freetype.org). All rights reserved.

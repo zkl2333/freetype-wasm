@@ -4,9 +4,13 @@ on:
     - cron: "0 6 * * 1" # every Monday 06:00 UTC
   workflow_dispatch: {}
 
+concurrency:
+  group: freetype-release
+  cancel-in-progress: false
+
 # Watch upstream FreeType (GNU Savannah). When a release appears that has no
 # tag yet, this workflow does everything itself in one shot: build -> verify
-# -> bake dist/ + version into vX.Y.Z and push (scripts/finalize-tag.sh).
+# -> bake dist/ + version into vX.Y.Z, push, and publish it to npm.
 #
 # Why self-contained instead of "push a thin tag and let build-tag.yml finish":
 #   a tag pushed with the default GITHUB_TOKEN does NOT trigger other
@@ -16,6 +20,9 @@ on:
 # no tag is created -> the broken version never enters distribution.
 jobs:
   track:
+    outputs:
+      release_sha: ${{ steps.release.outputs.sha }}
+      release_version: ${{ steps.chk.outputs.ver }}
     runs-on: ubuntu-latest
     container: emscripten/emsdk:3.1.74
     permissions:
@@ -52,4 +59,19 @@ jobs:
 
       - name: build + verify + bake into v$LATEST (no tag if it fails)
         if: steps.chk.outputs.new == '1'
-        run: FT_VER="${{ steps.chk.outputs.ver }}" bash scripts/finalize-tag.sh
+        id: release
+        run: |
+          FT_VER="${{ steps.chk.outputs.ver }}" bash scripts/finalize-tag.sh
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  publish-npm:
+    needs: track
+    if: needs.track.outputs.release_sha != ''
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-npm.yml
+    with:
+      release_sha: ${{ needs.track.outputs.release_sha }}
+      expected_version: ${{ needs.track.outputs.release_version }}
+    secrets: inherit

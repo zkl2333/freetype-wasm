@@ -1,9 +1,8 @@
 {
-  "name": "freetype-wasm",
+  "name": "@zkl2333/freetype-wasm",
   "version": "2.14.3",
-  "private": true,
   "type": "module",
-  "description": "完整 FreeType 编译的通用 WASM 模块：内存可增长（吃得下大 CJK 字体）、暴露完整公共 C API、Node+浏览器通用。npm 包计划中，暂用 `npm i github:zkl2333/freetype-wasm#<tag>` 消费（jsdelivr 可选）。",
+  "description": "A memory-growable FreeType WebAssembly build with the complete public C API for Node.js and browsers.",
   "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -25,12 +24,23 @@
   ],
   "scripts": {
     "build:docker": "docker build -t freetype-wasm . && docker run --rm -v \"$PWD/dist:/src/dist\" freetype-wasm",
-    "test": "node test/test.mjs"
+    "test": "node test/test.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "prepublishOnly": "npm run check:package"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zkl2333/freetype-wasm.git"
+    "url": "git+https://github.com/zkl2333/freetype-wasm.git"
+  },
+  "homepage": "https://github.com/zkl2333/freetype-wasm#readme",
+  "bugs": {
+    "url": "https://github.com/zkl2333/freetype-wasm/issues"
   },
   "keywords": [
     "freetype",
